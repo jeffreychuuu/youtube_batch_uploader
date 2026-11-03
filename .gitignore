@@ -1,0 +1,21 @@
+# ===== 敏感憑證（絕對唔可以 commit）=====
+client_secrets.json
+client_secrets*.json
+token.pickle
+*.pickle
+
+# ===== 本機上傳進度（包含本機路徑及影片 ID）=====
+upload_state.json
+upload_state.json.tmp
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# ===== macOS =====
+.DS_Store
+
+# ===== Claude Code session 資料 =====
+.claude/
