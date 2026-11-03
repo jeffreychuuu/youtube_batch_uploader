@@ -4,6 +4,9 @@ client_secrets*.json
 token.pickle
 *.pickle
 
+# ===== 本機設定（包含個人影片路徑）=====
+config.json
+
 # ===== 本機上傳進度（包含本機路徑及影片 ID）=====
 upload_state.json
 upload_state.json.tmp

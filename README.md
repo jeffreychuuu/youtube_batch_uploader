@@ -96,19 +96,25 @@ pip3 install google-api-python-client google-auth-oauthlib google-auth-httplib2
 
 ### 3.1 修改設定
 
-打開 `batch_upload.py`，修改最上面嘅 `CONFIG`：
+複製 `config.example.json` 做 `config.json`，然後修改入面嘅設定：
 
-```python
-CONFIG = {
-    "root_folder": "/path/to/your/videos",
-    "playlist_name": "My Playlist",
-    "privacy_status": "unlisted",
-    "made_for_kids": False,
-    "video_extensions": [".mp4", ".mov", ".mkv", ".avi", ".m4v"],
-    "chunk_size_mb": 32,
-    "max_retries": 5,
+```bash
+cp config.example.json config.json
+```
+
+```json
+{
+  "root_folder": "/path/to/your/videos",
+  "playlist_name": "My Playlist",
+  "privacy_status": "unlisted",
+  "made_for_kids": false,
+  "video_extensions": [".mp4", ".mov", ".mkv", ".avi", ".m4v"],
+  "chunk_size_mb": 32,
+  "max_retries": 5
 }
 ```
+
+`config.json` 已加入 `.gitignore`，**唔會被 commit**；就算你 fork 咗呢個 repo 都可以安全放自己嘅路徑。冇 `config.json` 時，Script 會使用內建嘅預設值。
 
 | 設定 | 說明 |
 |---|---|
@@ -249,6 +255,8 @@ Script 會自動重試；如果仍然失敗，再執行一次就會由斷點續�
 ```text
 youtube_video_upload/
 ├── batch_upload.py       # 主程式
+├── config.example.json   # 設定範例（可 commit）
+├── config.json           # 你嘅本機設定（唔會被 commit）
 ├── client_secrets.json   # OAuth 憑證（自行下載，勿分享）
 ├── token.pickle          # 登入 token（首次執行後產生，勿分享）
 ├── upload_state.json     # 上傳進度記錄（自動產生）

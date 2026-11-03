@@ -11,35 +11,59 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from googleapiclient.errors import HttpError
 
-# ==================== 使用者設定區 ====================
-CONFIG = {
-    # 本機存放影片的 Root Folder 路徑（請改成你自己的路徑）
-    "root_folder": "/path/to/your/videos",
-
-    # 目標播放清單名稱（若 YouTube 上不存在會自動建立）
-    "playlist_name": "My Playlist",
-
-    # 預設分享權限: 'public' (公開), 'unlisted' (非公開), 'private' (私人)
-    "privacy_status": "unlisted",
-
-    # 觀眾受眾: False (否，非兒童導向內容), True (是，設定為兒童內容)
-    "made_for_kids": False,
-
-    # 支援掃描的影片副檔名
-    "video_extensions": [".mp4", ".mov", ".mkv", ".avi", ".m4v"],
-
-    # 每次上傳的分塊大小（MB）。必須是 256KB 的整數倍；大檔案建議 16-32
-    "chunk_size_mb": 32,
-
-    # 遇到網絡斷線或 5xx 錯誤時，每個分塊最多重試次數
-    "max_retries": 5,
-}
-
 # 所有檔案都放在腳本所在目錄，避免由其他目錄執行時找不到
 BASE_DIR = Path(__file__).resolve().parent
 CLIENT_SECRETS_FILE = BASE_DIR / 'client_secrets.json'
 TOKEN_PICKLE_FILE = BASE_DIR / 'token.pickle'
 STATE_FILE = BASE_DIR / 'upload_state.json'
+CONFIG_FILE = BASE_DIR / 'config.json'
+
+# ==================== 預設設定 ====================
+# 實際設定請寫喺同目錄嘅 config.json（可複製 config.example.json 修改）
+DEFAULT_CONFIG = {
+    "root_folder": "/path/to/your/videos",
+    "playlist_name": "My Playlist",
+    "privacy_status": "unlisted",
+    "made_for_kids": False,
+    "video_extensions": [".mp4", ".mov", ".mkv", ".avi", ".m4v"],
+    "chunk_size_mb": 32,
+    "max_retries": 5,
+}
+
+
+def load_config():
+    """讀取 config.json 並與預設值合併；冇 config.json 就用預設值"""
+    config = dict(DEFAULT_CONFIG)
+    if not CONFIG_FILE.exists():
+        return config
+
+    try:
+        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+            user_config = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        sys.exit(f"[錯誤] 無法讀取 {CONFIG_FILE.name}：{e}")
+
+    if not isinstance(user_config, dict):
+        sys.exit(f"[錯誤] {CONFIG_FILE.name} 格式錯誤，最外層必須係 JSON object。")
+
+    unknown = sorted(set(user_config) - set(DEFAULT_CONFIG))
+    if unknown:
+        print(f"[警告] {CONFIG_FILE.name} 有未知設定項目，已忽略：{', '.join(unknown)}")
+
+    config.update({k: v for k, v in user_config.items() if k in DEFAULT_CONFIG})
+
+    if config["privacy_status"] not in ("public", "unlisted", "private"):
+        sys.exit("[錯誤] privacy_status 只可以係 'public'、'unlisted' 或 'private'。")
+    if not isinstance(config["video_extensions"], list):
+        sys.exit("[錯誤] video_extensions 必須係 JSON 陣列，例如 [\".mp4\", \".mov\"]。")
+    for key in ("chunk_size_mb", "max_retries"):
+        if isinstance(config[key], bool) or not isinstance(config[key], int):
+            sys.exit(f"[錯誤] {key} 必須係整數。")
+
+    return config
+
+
+CONFIG = load_config()
 
 # 包含上傳與管理播放清單所需權限
 SCOPES = [

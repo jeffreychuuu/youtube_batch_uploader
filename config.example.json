@@ -1,0 +1,9 @@
+{
+  "root_folder": "/path/to/your/videos",
+  "playlist_name": "My Playlist",
+  "privacy_status": "unlisted",
+  "made_for_kids": false,
+  "video_extensions": [".mp4", ".mov", ".mkv", ".avi", ".m4v"],
+  "chunk_size_mb": 32,
+  "max_retries": 5
+}
