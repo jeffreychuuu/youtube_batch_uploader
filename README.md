@@ -15,6 +15,7 @@
 - 網絡斷線 / 429 / 5xx 自動 exponential backoff 重試
 - 分塊上傳大小可調（預設 32MB，必須為 256KB 整數倍）
 - 原子寫入進度檔，強制終止都唔會寫壞
+- 可設定上傳成功後自動移除本機影片（移到垃圾桶或永久刪除）
 
 ---
 
@@ -110,7 +111,9 @@ cp config.example.json config.json
   "made_for_kids": false,
   "video_extensions": [".mp4", ".mov", ".mkv", ".avi", ".m4v"],
   "chunk_size_mb": 32,
-  "max_retries": 5
+  "max_retries": 5,
+  "remove_local_after_upload": false,
+  "remove_local_permanent": false
 }
 ```
 
@@ -125,6 +128,8 @@ cp config.example.json config.json
 | `video_extensions` | 要掃描嘅副檔名 |
 | `chunk_size_mb` | 每個上傳分塊大小，必須為 256KB 整數倍；大檔案建議 16–32 |
 | `max_retries` | 網絡錯誤 / 5xx 時每個分塊最多重試次數 |
+| `remove_local_after_upload` | `true` = 上傳成功後移除本機影片；`false` = 保留（預設） |
+| `remove_local_permanent` | 移除方式：`false` = 移到垃圾桶（可還原，預設）/ `true` = 永久刪除（無法還原） |
 
 ### 3.2 執行
 
@@ -156,6 +161,33 @@ YouTube API **冇「草稿」概念**，上傳完成後影片即刻以 `privacy_
 | `private` | 只有頻道擁有者睇到，最接近「草稿」，之後可去 YouTube Studio 手動改公開 |
 | `unlisted` | 唔會公開搜尋到，但有 link 嘅人睇到 |
 | `public` | 上傳完成即公開 |
+
+### 3.4 上傳後自動清理本機檔案
+
+喺 `config.json` 設定：
+
+```json
+"remove_local_after_upload": true,
+"remove_local_permanent": false
+```
+
+| `remove_local_permanent` | 效果 |
+|---|---|
+| `false`（預設） | 將影片移到系統垃圾桶（macOS 用 Finder），可以喺垃圾桶還原 |
+| `true` | 直接永久刪除檔案，**無法還原** |
+
+注意：
+
+- 只會喺影片**上傳成功並取得 video ID** 之後先會移除本機檔案
+- 如果上傳失敗，本機檔案唔會被刪
+- 之前已經上傳過嘅影片，重跑時亦會按呢個設定清理
+- 移除失敗（例如權限不足）只會顯示警告，唔會中斷其他影片
+- `remove_local_permanent: false`（垃圾桶模式）喺 macOS 首次使用時，系統可能會詢問「終端機想控制 Finder」，需要允許
+- 如果系統有安裝 `send2trash`，會優先使用佢，避免 Finder 權限提示：
+
+  ```bash
+  pip3 install send2trash
+  ```
 
 ---
 

@@ -1,6 +1,7 @@
 import json
 import os
 import pickle
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -28,6 +29,10 @@ DEFAULT_CONFIG = {
     "video_extensions": [".mp4", ".mov", ".mkv", ".avi", ".m4v"],
     "chunk_size_mb": 32,
     "max_retries": 5,
+    # 上傳成功後要唔要移除本機影片
+    "remove_local_after_upload": False,
+    # 移除方式: false = 移到垃圾桶（可還原）, true = 永久刪除（無法還原）
+    "remove_local_permanent": False,
 }
 
 
@@ -59,6 +64,9 @@ def load_config():
     for key in ("chunk_size_mb", "max_retries"):
         if isinstance(config[key], bool) or not isinstance(config[key], int):
             sys.exit(f"[錯誤] {key} 必須係整數。")
+    for key in ("remove_local_after_upload", "remove_local_permanent"):
+        if not isinstance(config[key], bool):
+            sys.exit(f"[錯誤] {key} 必須係 true 或 false。")
 
     return config
 
@@ -313,6 +321,45 @@ def upload_video(youtube, file_path, config, state):
     print(f"  [完成] 影片 ID: {video_id} -> https://youtu.be/{video_id}")
     return video_id
 
+def move_to_trash(file_path):
+    """將檔案移到垃圾桶（有 send2trash 就用佢，否則 macOS 用 Finder）"""
+    try:
+        from send2trash import send2trash
+    except ImportError:
+        send2trash = None
+
+    if send2trash is not None:
+        send2trash(str(file_path))
+        return
+
+    if sys.platform == 'darwin':
+        # 用 argv 傳路徑，避免檔名有引號或特殊字元時出錯
+        result = subprocess.run(
+            [
+                'osascript',
+                '-e', 'on run argv',
+                '-e', 'tell application "Finder" to delete (POSIX file (item 1 of argv))',
+                '-e', 'end run',
+                str(file_path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise OSError(result.stderr.strip() or 'osascript 無法移到垃圾桶')
+        return
+
+    raise OSError('未安裝 send2trash，無法移到垃圾桶（可執行 pip3 install send2trash）')
+
+def remove_local_file(file_path, permanent):
+    """根據設定移除本機影片檔案"""
+    if permanent:
+        file_path.unlink()
+        print(f"  [清理] 已永久刪除本機檔案: {file_path}")
+    else:
+        move_to_trash(file_path)
+        print(f"  [清理] 已將本機檔案移到垃圾桶: {file_path}")
+
 def scan_video_files(folder_path, extensions):
     """遞迴搜尋指定資料夾中的所有影片檔案"""
     folder = Path(folder_path)
@@ -367,6 +414,19 @@ def main():
                 add_video_to_playlist(youtube, playlist_id, video_id)
                 entry["playlist_added"] = True
                 save_state(state)
+
+            # 上傳成功（或之前已上傳過）先至移除本機檔案
+            if (
+                video_id
+                and CONFIG["remove_local_after_upload"]
+                and not entry.get("local_removed")
+            ):
+                try:
+                    remove_local_file(video_path, CONFIG["remove_local_permanent"])
+                    entry["local_removed"] = True
+                    save_state(state)
+                except Exception as e:
+                    print(f"  [警告] 無法移除本機檔案 {video_path.name}: {e}")
         except KeyboardInterrupt:
             print("\n\n[已中斷] 進度已儲存，下次執行會自動續傳。")
             return
