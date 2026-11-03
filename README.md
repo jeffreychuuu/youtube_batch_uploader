@@ -1,103 +1,105 @@
-# YouTube 批量上傳工具
+# YouTube Batch Uploader
 
-用 Python + 官方 YouTube Data API v3 + OAuth 2.0，將本機一整個資料夾嘅影片批量上傳到 YouTube，並自動加入指定播放清單。
+[English](README.md) | [繁體中文](README.zh-TW.md)
 
-支援**斷點續傳**：上傳中途斷線、關機或撳 Ctrl+C，下次執行會自動由斷點繼續，已完成嘅影片唔會重複上傳。
+Upload every video in a local folder to YouTube in bulk using Python, the official YouTube Data API v3, and OAuth 2.0, with automatic addition to a specified playlist.
 
----
-
-## 功能特色
-
-- 遞迴掃描指定資料夾，自動上傳所有支援格式嘅影片
-- 上傳完成自動加入（或建立）指定播放清單，重跑唔會重複加入
-- 進度記錄於 `upload_state.json`，已完成檔案重跑時直接跳過
-- 未完成嘅上傳會保存 resumable session，重跑由斷點續傳
-- 網絡斷線 / 429 / 5xx 自動 exponential backoff 重試
-- 分塊上傳大小可調（預設 32MB，必須為 256KB 整數倍）
-- 原子寫入進度檔，強制終止都唔會寫壞
-- 可設定上傳成功後自動移除本機影片（移到垃圾桶或永久刪除）
+Supports **resumable uploads**: if the connection drops, the machine shuts down, or you press Ctrl+C mid-upload, the next run resumes from the breakpoint and never re-uploads completed videos.
 
 ---
 
-## 系統需求
+## Features
 
-- macOS（Windows / Linux 亦適用，只需改路徑）
-- Python 3.8 或以上
-- 一個已建立頻道嘅 YouTube / Google 帳號
-- 已啟用 YouTube Data API v3 嘅 Google Cloud 專案
+- Recursively scans a folder and uploads every supported video
+- Adds uploaded videos to a playlist (creating it if needed); reruns never add duplicates
+- Progress is stored in `upload_state.json`; completed files are skipped on rerun
+- Unfinished uploads keep their resumable session and continue from the breakpoint
+- Automatic exponential backoff retry on network errors / 429 / 5xx
+- Configurable chunk size (default 32 MB, must be a multiple of 256 KB)
+- Progress file written atomically, so a forced termination cannot corrupt it
+- Optionally removes local videos after a successful upload (move to Trash or delete permanently)
 
 ---
 
-## 1. 前置準備
+## Requirements
 
-### 1.1 安裝套件
+- macOS (Windows / Linux also work; adjust paths as needed)
+- Python 3.8 or later
+- A YouTube / Google account with a channel
+- A Google Cloud project with the YouTube Data API v3 enabled
 
-喺 Terminal 執行：
+---
+
+## 1. Prerequisites
+
+### 1.1 Install dependencies
+
+Run in Terminal:
 
 ```bash
 pip3 install google-api-python-client google-auth-oauthlib google-auth-httplib2
 ```
 
-> 如果 `pip3` 唔存在，先確認有冇裝 Python 3：`python3 --version`。
-> 本機如果 `python` 指令唔存在，用 `python3` 代替（或自行建立 alias / wrapper）。
+> If `pip3` is not available, first check that Python 3 is installed: `python3 --version`.
+> If the `python` command does not exist on your system, use `python3` instead (or create your own alias / wrapper).
 
-### 1.2 建立 YouTube API 憑證
+### 1.2 Create YouTube API credentials
 
-1. 前往 [Google Cloud Console](https://console.cloud.google.com/)，建立新專案（或選用現有專案）。
-2. 進入 **APIs & Services → Library**，搜尋 **YouTube Data API v3**，按 **Enable** 啟用。
-3. 進入 **APIs & Services → OAuth consent screen**：
-   - User type 選擇 **External**
-   - 填寫 App name、User support email、Developer contact 等資料
-   - 在 **Test users** 加入你將會用嚟上傳嘅 Google / YouTube 帳號
-4. 進入 **APIs & Services → Credentials → Create Credentials → OAuth client ID**：
-   - Application type 選擇 **Desktop app**
-   - 建立後按 **Download JSON** 下載憑證
-5. 將下載嘅 JSON 改名為 **`client_secrets.json`**，放喺同 `batch_upload.py` 同一個資料夾。
+1. Go to [Google Cloud Console](https://console.cloud.google.com/) and create a new project (or select an existing one).
+2. Go to **APIs & Services → Library**, search for **YouTube Data API v3**, and click **Enable**.
+3. Go to **APIs & Services → OAuth consent screen**:
+   - Select **External** as the user type
+   - Fill in the app name, user support email, developer contact, and other details
+   - Add the Google / YouTube account you will upload with under **Test users**
+4. Go to **APIs & Services → Credentials → Create Credentials → OAuth client ID**:
+   - Select **Desktop app** as the application type
+   - After creating it, click **Download JSON** to download the credential
+5. Rename the downloaded JSON to **`client_secrets.json`** and place it in the same folder as `batch_upload.py`.
 
-> `client_secrets.json` 入面有 `"installed"` 區塊就代表係正確嘅 Desktop App 憑證。
+> A correct Desktop App credential contains an `"installed"` block in `client_secrets.json`.
 
-### 1.3 第一次登入授權
+### 1.3 First-time sign-in and authorization
 
-第一次執行 Script 時，會自動開啟瀏覽器要求登入 Google 帳號並授權。
+The first run opens a browser asking you to sign in to your Google account and authorize access.
 
-- 揀啱你要上傳嘅 **YouTube channel**
-- 授權成功後會喺同一個資料夾產生 `token.pickle`，之後再執行就唔使再登入
+- Choose the **YouTube channel** you want to upload to
+- After authorization, `token.pickle` is created in the same folder; later runs will not ask you to sign in again
 
-> `token.pickle` 等同登入憑證，**唔好分享或上載到任何地方**。
+> `token.pickle` is equivalent to your login credential. **Never share it or upload it anywhere.**
 
 ---
 
-## 2. 影片清單
+## 2. Video List
 
-本專案版本**唔使用 CSV**：Script 會直接遞迴掃描 `CONFIG["root_folder"]` 入面所有影片檔案，以**檔案名稱（不含副檔名）作為影片標題**。
+This version **does not use a CSV file**: the script recursively scans every video file under `CONFIG["root_folder"]` and uses the **file name (without extension) as the video title**.
 
-支援嘅副檔名（可喺 `CONFIG["video_extensions"]` 修改）：
+Supported extensions (editable in `CONFIG["video_extensions"]`):
 
 ```
 .mp4  .mov  .mkv  .avi  .m4v
 ```
 
-即係話，你只需要：
+In other words, you only need:
 
 ```text
 /path/to/your/videos/
-├── 影片 A.mp4
-├── 影片 B.mp4
-└── 子資料夾/
-    └── 影片 C.mov
+├── Video A.mp4
+├── Video B.mp4
+└── subfolder/
+    └── Video C.mov
 ```
 
-三條片都會被上傳，標題分別係「影片 A」、「影片 B」、「影片 C」。
+All three videos will be uploaded with the titles "Video A", "Video B", and "Video C".
 
-如果你想用 CSV 指定每條片嘅標題、描述、標籤、權限等，需要另外擴充 Script（目前未支援）。
+If you want to specify each video's title, description, tags, or privacy with a CSV file, you need to extend the script (currently unsupported).
 
 ---
 
-## 3. 設定與執行
+## 3. Configuration and Usage
 
-### 3.1 修改設定
+### 3.1 Edit the configuration
 
-複製 `config.example.json` 做 `config.json`，然後修改入面嘅設定：
+Copy `config.example.json` to `config.json`, then edit the settings:
 
 ```bash
 cp config.example.json config.json
@@ -117,73 +119,73 @@ cp config.example.json config.json
 }
 ```
 
-`config.json` 已加入 `.gitignore`，**唔會被 commit**；就算你 fork 咗呢個 repo 都可以安全放自己嘅路徑。冇 `config.json` 時，Script 會使用內建嘅預設值。
+`config.json` is listed in `.gitignore` and **will not be committed**; you can safely use your own paths even after forking this repo. If `config.json` is missing, the script uses the built-in defaults.
 
-| 設定 | 說明 |
+| Setting | Description |
 |---|---|
-| `root_folder` | 影片來源資料夾，會遞迴掃描所有子資料夾 |
-| `playlist_name` | 目標播放清單名稱；唔存在會自動建立。設為 `""` 就唔加入清單 |
-| `privacy_status` | `public`（公開）/ `unlisted`（非公開，有 link 就睇到）/ `private`（私人） |
-| `made_for_kids` | `True` = 兒童導向內容；`False` = 非兒童導向 |
-| `video_extensions` | 要掃描嘅副檔名 |
-| `chunk_size_mb` | 每個上傳分塊大小，必須為 256KB 整數倍；大檔案建議 16–32 |
-| `max_retries` | 網絡錯誤 / 5xx 時每個分塊最多重試次數 |
-| `remove_local_after_upload` | `true` = 上傳成功後移除本機影片；`false` = 保留（預設） |
-| `remove_local_permanent` | 移除方式：`false` = 移到垃圾桶（可還原，預設）/ `true` = 永久刪除（無法還原） |
+| `root_folder` | Source folder for videos; all subfolders are scanned recursively |
+| `playlist_name` | Target playlist name; created automatically if it does not exist. Set to `""` to skip adding to a playlist |
+| `privacy_status` | `public` / `unlisted` (visible via link) / `private` |
+| `made_for_kids` | `True` = content made for kids; `False` = not made for kids |
+| `video_extensions` | Extensions to scan |
+| `chunk_size_mb` | Size of each upload chunk; must be a multiple of 256 KB. 16–32 recommended for large files |
+| `max_retries` | Maximum retries per chunk on network errors / 5xx |
+| `remove_local_after_upload` | `true` = remove the local video after a successful upload; `false` = keep it (default) |
+| `remove_local_permanent` | Removal method: `false` = move to Trash (recoverable, default) / `true` = delete permanently (irreversible) |
 
-### 3.2 執行
+### 3.2 Run
 
 ```bash
 cd /path/to/youtube_video_upload
 python batch_upload.py
 ```
 
-如果系統冇 `python` 指令：
+If the system has no `python` command:
 
 ```bash
 python3 batch_upload.py
 ```
 
-執行後會：
+The run will:
 
-1. 掃描資料夾，列出影片數量
-2. 開啟瀏覽器做 OAuth 授權（第一次先需要）
-3. 搵到或建立播放清單
-4. 逐條影片上傳，顯示進度百分比
-5. 上傳完成後加入播放清單
+1. Scan the folder and report how many videos were found
+2. Open the browser for OAuth authorization (first run only)
+3. Find or create the playlist
+4. Upload each video one by one, showing a progress percentage
+5. Add each uploaded video to the playlist
 
-### 3.3 關於「草稿」與發佈
+### 3.3 "Draft" and publishing
 
-YouTube API **冇「草稿」概念**，上傳完成後影片即刻以 `privacy_status` 指定嘅狀態存在：
+The YouTube API **has no concept of a "draft"**: once an upload completes, the video immediately exists in the state specified by `privacy_status`:
 
-| `privacy_status` | 效果 |
+| `privacy_status` | Effect |
 |---|---|
-| `private` | 只有頻道擁有者睇到，最接近「草稿」，之後可去 YouTube Studio 手動改公開 |
-| `unlisted` | 唔會公開搜尋到，但有 link 嘅人睇到 |
-| `public` | 上傳完成即公開 |
+| `private` | Visible only to the channel owner; closest to a "draft". You can publish it manually later in YouTube Studio |
+| `unlisted` | Not discoverable in search, but anyone with the link can watch it |
+| `public` | Published immediately after upload |
 
-### 3.4 上傳後自動清理本機檔案
+### 3.4 Automatic local cleanup after upload
 
-喺 `config.json` 設定：
+Set the following in `config.json`:
 
 ```json
 "remove_local_after_upload": true,
 "remove_local_permanent": false
 ```
 
-| `remove_local_permanent` | 效果 |
+| `remove_local_permanent` | Effect |
 |---|---|
-| `false`（預設） | 將影片移到系統垃圾桶（macOS 用 Finder），可以喺垃圾桶還原 |
-| `true` | 直接永久刪除檔案，**無法還原** |
+| `false` (default) | Move the video to the system Trash (Finder on macOS); it can be restored from the Trash |
+| `true` | Delete the file permanently; **cannot be undone** |
 
-注意：
+Notes:
 
-- 只會喺影片**上傳成功並取得 video ID** 之後先會移除本機檔案
-- 如果上傳失敗，本機檔案唔會被刪
-- 之前已經上傳過嘅影片，重跑時亦會按呢個設定清理
-- 移除失敗（例如權限不足）只會顯示警告，唔會中斷其他影片
-- `remove_local_permanent: false`（垃圾桶模式）喺 macOS 首次使用時，系統可能會詢問「終端機想控制 Finder」，需要允許
-- 如果系統有安裝 `send2trash`，會優先使用佢，避免 Finder 權限提示：
+- A local file is removed only after the video **uploads successfully and returns a video ID**
+- If an upload fails, the local file is not deleted
+- Videos uploaded previously are also cleaned up on rerun according to this setting
+- A removal failure (e.g. insufficient permissions) only prints a warning and does not interrupt other videos
+- On macOS, the first use of trash mode (`remove_local_permanent: false`) may prompt "Terminal wants to control Finder"; allow it
+- If `send2trash` is installed, it is used first, avoiding the Finder permission prompt:
 
   ```bash
   pip3 install send2trash
@@ -191,11 +193,11 @@ YouTube API **冇「草稿」概念**，上傳完成後影片即刻以 `privacy_
 
 ---
 
-## 4. 斷點續傳與進度記錄
+## 4. Resumable Uploads and Progress Tracking
 
 ### 4.1 `upload_state.json`
 
-Script 會喺同一個資料夾產生 `upload_state.json`，記錄每條影片：
+The script creates `upload_state.json` in the same folder, recording each video:
 
 ```json
 {
@@ -211,98 +213,99 @@ Script 會喺同一個資料夾產生 `upload_state.json`，記錄每條影片�
 }
 ```
 
-- 每上傳完一個分塊就會更新一次
-- 已上傳完成嘅檔案，下次執行會顯示 `[略過]` 並直接跳過
-- 未完成嘅上傳會保存 `resumable_uri` 同 `bytes_sent`，下次執行自動續傳
-- 如果檔案大小或修改時間變咗，會當作新版本重新上傳
+- Updated after every uploaded chunk
+- Files that are already fully uploaded are skipped on the next run
+- Unfinished uploads keep their `resumable_uri` and `bytes_sent`, and resume automatically on the next run
+- If the file size or modification time changes, it is treated as a new version and re-uploaded
 
-### 4.2 中途斷咗點算？
+### 4.2 What if the upload stops midway?
 
-直接再執行一次：
+Just run the script again:
 
 ```bash
 python batch_upload.py
 ```
 
-- 已完成嘅影片：跳過
-- 未完成嘅影片：由斷點繼續
-- 播放清單：如果之前未加入成功，會補加入
+- Completed videos: skipped
+- Unfinished videos: resumed from the breakpoint
+- Playlist: already-uploaded videos that were not added previously get added now
 
-> Google 嘅 resumable session 一般有效約 7 日；過期後會自動改為重新上傳該影片。
+> Google resumable sessions are typically valid for about 7 days; after expiry, that video is automatically re-uploaded from the start.
 
-### 4.3 強制重新上傳
+### 4.3 Force a re-upload
 
-- 重新上傳**某一條**：喺 `upload_state.json` 刪除該檔案嘅 entry
-- **全部**重新上傳：刪除成個 `upload_state.json`
+- Re-upload **a single file**: delete that file's entry from `upload_state.json`
+- Re-upload **everything**: delete the entire `upload_state.json`
 
-（刪除前記得關閉正在執行嘅 Script。）
+(Close any running script before deleting.)
 
 ---
 
-## 5. 常見問題
+## 5. FAQ
 
 ### `python: command not found`
 
-macOS 新版本預設只有 `python3`，用 `python3 batch_upload.py` 即可。
+Recent macOS versions ship only `python3`. Use `python3 batch_upload.py`.
 
 ### `HttpError 403: quotaExceeded`
 
-YouTube Data API v3 預設每日配額為 **10,000 units**，而**每次上傳影片消耗 1,600 units**，即每日大約只可以上傳 **6 條影片**（其他操作亦會消耗少量配額）。
+The YouTube Data API v3 has a default daily quota of **10,000 units**, and **each video upload costs 1,600 units**, so you can upload roughly **6 videos per day** (other operations also consume small amounts of quota).
 
-應對方法：
+Workarounds:
 
-- 分幾日執行；Script 會記錄進度，第二日再跑會自動繼續
-- 喺 Google Cloud Console 申請提高配額（Quota increase）
+- Spread the uploads over several days; the script records progress and continues automatically the next day
+- Request a quota increase in Google Cloud Console
 
-### `HttpError 403` 但唔係 quota
+### `HttpError 403` but not quota
 
-- 確認 `client_secrets.json` 屬於已啟用 YouTube Data API v3 嘅專案
-- 確認登入嘅帳號已建立 YouTube channel
-- 確認該帳號已加入 OAuth consent screen 嘅 Test users
+- Confirm that `client_secrets.json` belongs to a project with the YouTube Data API v3 enabled
+- Confirm that the signed-in account has a YouTube channel
+- Confirm that the account is listed under Test users on the OAuth consent screen
 
-### 上傳中途斷線 / 電腦休眠
+### Connection drops / computer sleeps during upload
 
-Script 會自動重試；如果仍然失敗，再執行一次就會由斷點續傳。
+The script retries automatically; if it still fails, run it again and it resumes from the breakpoint.
 
-### `token.pickle` 過期或想換帳號
+### `token.pickle` expired or you want to switch accounts
 
-刪除 `token.pickle`，再執行 Script 重新登入。
+Delete `token.pickle`, then run the script again to sign in.
 
-> 注意：如果 Google Cloud 專案嘅 OAuth consent screen 仍然係 **Testing** 狀態，refresh token 約 **7 日**後會失效，需要重新登入。想避免就要將 app 發佈（Publish app）。
+> Note: if the OAuth consent screen of your Google Cloud project is still in **Testing** status, refresh tokens expire after about **7 days** and you will need to sign in again. Publish the app to avoid this.
 
-### 出現 `FutureWarning` / `NotOpenSSLWarning`
+### `FutureWarning` / `NotOpenSSLWarning` appears
 
-例如 Python 3.9 已過支援期、urllib3 使用 LibreSSL 等警告，唔影響上傳功能，可以忽略。
+Warnings such as Python 3.9 being past end-of-life or urllib3 using LibreSSL do not affect uploads and can be ignored.
 
-### 上傳好慢
+### Uploads are slow
 
-- 確認 `chunk_size_mb` 唔好太細（建議 16–32）
-- 上傳速度主要取決於網絡頻寬；有線網絡通常比 Wi-Fi 穩定
-- 大檔案（例如 9GB）本身需要較長時間，中斷後會續傳，唔使由頭嚟
+- Make sure `chunk_size_mb` is not too small (16–32 recommended)
+- Upload speed mainly depends on network bandwidth; a wired connection is usually more stable than Wi-Fi
+- Large files (e.g. 9 GB) naturally take longer; if interrupted, they resume instead of starting over
 
 ---
 
-## 6. 檔案結構
+## 6. File Structure
 
 ```text
 youtube_video_upload/
-├── batch_upload.py       # 主程式
-├── config.example.json   # 設定範例（可 commit）
-├── config.json           # 你嘅本機設定（唔會被 commit）
-├── client_secrets.json   # OAuth 憑證（自行下載，勿分享）
-├── token.pickle          # 登入 token（首次執行後產生，勿分享）
-├── upload_state.json     # 上傳進度記錄（自動產生）
-└── README.md
+├── batch_upload.py       # Main script
+├── config.example.json   # Example configuration (committed)
+├── config.json           # Your local configuration (not committed)
+├── client_secrets.json   # OAuth credentials (download yourself, never share)
+├── token.pickle          # Login token (created on first run, never share)
+├── upload_state.json     # Upload progress record (created automatically)
+├── README.md             # English documentation
+└── README.zh-TW.md       # Traditional Chinese documentation
 ```
 
 ---
 
-## 7. 安全性提醒
+## 7. Security Notice
 
-以下檔案包含敏感資料，**切勿**上載到 GitHub、雲端硬碟或傳送給他人：
+The following files contain sensitive data. **Never** upload them to GitHub, cloud drives, or send them to anyone:
 
-- `client_secrets.json`（OAuth client secret）
-- `token.pickle`（等同你嘅登入授權）
-- `upload_state.json`（包含你本機路徑同影片 ID）
+- `client_secrets.json` (OAuth client secret)
+- `token.pickle` (equivalent to your login authorization)
+- `upload_state.json` (contains local paths and video IDs)
 
-如果憑證外洩，請即刻去 Google Cloud Console 刪除該 OAuth client ID 並重新建立。
+If your credentials leak, immediately delete the OAuth client ID in Google Cloud Console and create a new one.

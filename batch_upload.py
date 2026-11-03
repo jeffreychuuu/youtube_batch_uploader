@@ -12,15 +12,15 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from googleapiclient.errors import HttpError
 
-# 所有檔案都放在腳本所在目錄，避免由其他目錄執行時找不到
+# Keep all files in the script's directory so it works when run from any directory
 BASE_DIR = Path(__file__).resolve().parent
 CLIENT_SECRETS_FILE = BASE_DIR / 'client_secrets.json'
 TOKEN_PICKLE_FILE = BASE_DIR / 'token.pickle'
 STATE_FILE = BASE_DIR / 'upload_state.json'
 CONFIG_FILE = BASE_DIR / 'config.json'
 
-# ==================== 預設設定 ====================
-# 實際設定請寫喺同目錄嘅 config.json（可複製 config.example.json 修改）
+# ==================== Default settings ====================
+# Real settings go in config.json in the same directory (copy config.example.json and edit it)
 DEFAULT_CONFIG = {
     "root_folder": "/path/to/your/videos",
     "playlist_name": "My Playlist",
@@ -29,15 +29,15 @@ DEFAULT_CONFIG = {
     "video_extensions": [".mp4", ".mov", ".mkv", ".avi", ".m4v"],
     "chunk_size_mb": 32,
     "max_retries": 5,
-    # 上傳成功後要唔要移除本機影片
+    # Whether to remove local video files after a successful upload
     "remove_local_after_upload": False,
-    # 移除方式: false = 移到垃圾桶（可還原）, true = 永久刪除（無法還原）
+    # Removal method: false = move to Trash (recoverable), true = delete permanently (irreversible)
     "remove_local_permanent": False,
 }
 
 
 def load_config():
-    """讀取 config.json 並與預設值合併；冇 config.json 就用預設值"""
+    """Load config.json and merge it with the defaults; use defaults if config.json is missing"""
     config = dict(DEFAULT_CONFIG)
     if not CONFIG_FILE.exists():
         return config
@@ -73,18 +73,18 @@ def load_config():
 
 CONFIG = load_config()
 
-# 包含上傳與管理播放清單所需權限
+# Scopes required for uploading and managing playlists
 SCOPES = [
     'https://www.googleapis.com/auth/youtube.upload',
     'https://www.googleapis.com/auth/youtube'
 ]
 
-# 可以安全重試的 HTTP 狀態碼
+# HTTP status codes that are safe to retry
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 # ====================================================
 
 def get_authenticated_service():
-    """處理 OAuth 2.0 驗證與 Token 快取"""
+    """Handle OAuth 2.0 authentication and token caching"""
     credentials = None
     if TOKEN_PICKLE_FILE.exists():
         with open(TOKEN_PICKLE_FILE, 'rb') as token:
@@ -104,10 +104,10 @@ def get_authenticated_service():
 
     return build('youtube', 'v3', credentials=credentials)
 
-# ==================== 上傳進度記錄 ====================
+# ==================== Upload progress tracking ====================
 
 def load_state():
-    """讀取 upload_state.json；檔案損壞時重新開始，不影響已上傳的影片"""
+    """Load upload_state.json; start fresh if the file is corrupt, without affecting uploaded videos"""
     if STATE_FILE.exists():
         try:
             with open(STATE_FILE, 'r', encoding='utf-8') as f:
@@ -119,7 +119,7 @@ def load_state():
     return {"uploads": {}}
 
 def save_state(state):
-    """原子寫入進度檔，突然中斷都唔會寫壞"""
+    """Atomically write the progress file so a sudden interruption cannot corrupt it"""
     tmp = STATE_FILE.with_name(STATE_FILE.name + '.tmp')
     with open(tmp, 'w', encoding='utf-8') as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
@@ -129,7 +129,7 @@ def get_entry(state, file_path):
     return state["uploads"].setdefault(str(file_path.resolve()), {})
 
 def is_same_file(entry, file_path):
-    """確認檔案自上傳後冇被修改過（大小與修改時間一致）"""
+    """Check that the file has not changed since upload (same size and modification time)"""
     try:
         stat = file_path.stat()
     except OSError:
@@ -140,7 +140,7 @@ def is_same_file(entry, file_path):
     )
 
 def refresh_entry(entry, file_path):
-    """檔案有變動時重設記錄"""
+    """Reset the entry when the file has changed"""
     stat = file_path.stat()
     entry.clear()
     entry.update({"size": stat.st_size, "mtime": stat.st_mtime})
@@ -155,7 +155,7 @@ def format_bytes(num):
 # ====================================================
 
 def get_or_create_playlist(youtube, playlist_name, privacy_status):
-    """查詢播放清單，若不存在則建立新清單"""
+    """Look up the playlist and create a new one if it does not exist"""
     request = youtube.playlists().list(
         part="snippet",
         mine=True,
@@ -170,7 +170,7 @@ def get_or_create_playlist(youtube, playlist_name, privacy_status):
                 return item["id"]
         request = youtube.playlists().list_next(request, response)
 
-    # 找不到同名清單，自動建立
+    # No playlist with the same name, so create one
     print(f"[建立清單] 建立新播放清單: {playlist_name}")
     insert_response = youtube.playlists().insert(
         part="snippet,status",
@@ -187,7 +187,7 @@ def get_or_create_playlist(youtube, playlist_name, privacy_status):
     return insert_response["id"]
 
 def add_video_to_playlist(youtube, playlist_id, video_id):
-    """將上傳完成的影片加入播放清單（已存在就跳過，避免重跑時重複）"""
+    """Add an uploaded video to the playlist (skip if already present, to avoid duplicates on rerun)"""
     existing = youtube.playlistItems().list(
         part="snippet",
         playlistId=playlist_id,
@@ -211,13 +211,13 @@ def add_video_to_playlist(youtube, playlist_id, video_id):
     print(f"  -> 已成功加入播放清單")
 
 def upload_video(youtube, file_path, config, state):
-    """執行單一影片上傳，支援中斷後續傳"""
+    """Upload a single video, resuming after an interruption if possible"""
     entry = get_entry(state, file_path)
     if not is_same_file(entry, file_path):
         refresh_entry(entry, file_path)
         save_state(state)
 
-    video_title = Path(file_path).stem  # 預設以檔案名稱（不含副檔名）作為影片標題
+    video_title = Path(file_path).stem  # Use the file name (without extension) as the video title
 
     body = {
         'snippet': {
@@ -238,13 +238,13 @@ def upload_video(youtube, file_path, config, state):
     )
     request = youtube.videos().insert(part=','.join(body.keys()), body=body, media_body=media)
 
-    # 若上次有未完成的上傳，接住同一個 resumable session
+    # If a previous upload was unfinished, continue the same resumable session
     resume_uri = entry.get("resumable_uri")
     resume_bytes = int(entry.get("bytes_sent") or 0)
     if resume_uri:
         request.resumable_uri = resume_uri
         request.resumable_progress = resume_bytes
-        # 標記為錯誤狀態，next_chunk 會先向伺服器查詢實際已接收的位元組數
+        # Mark as error state so next_chunk asks the server for the actual byte count first
         request._in_error_state = True
         print(f"\n[續傳] 發現未完成的上傳（約 {format_bytes(resume_bytes)}），嘗試由斷點繼續...")
 
@@ -259,7 +259,7 @@ def upload_video(youtube, file_path, config, state):
             retries = 0
         except HttpError as e:
             code = e.resp.status
-            # 上傳 session 過期（通常超過一星期）→ 重新開始
+            # Upload session expired (usually after a week), so start over
             if code in (404, 410) and request.resumable_uri:
                 print("\n  [續傳] 上傳工作階段已過期，改為重新上傳...")
                 request.resumable_uri = None
@@ -281,7 +281,7 @@ def upload_video(youtube, file_path, config, state):
             save_state(state)
             raise
         except (httplib2.HttpLib2Error, OSError) as e:
-            # 網絡暫時斷線 → 儲存進度後重試，session 仍然有效
+            # Temporary network drop: save progress and retry; the session is still valid
             if retries < config["max_retries"]:
                 retries += 1
                 wait = min(2 ** retries, 60)
@@ -297,7 +297,7 @@ def upload_video(youtube, file_path, config, state):
             save_state(state)
             raise
 
-        # 每個分塊完成後都記錄進度，強制終止都可以續傳
+        # Save progress after every chunk so a forced termination can still resume
         entry["resumable_uri"] = request.resumable_uri
         entry["bytes_sent"] = request.resumable_progress
         save_state(state)
@@ -322,7 +322,7 @@ def upload_video(youtube, file_path, config, state):
     return video_id
 
 def move_to_trash(file_path):
-    """將檔案移到垃圾桶（有 send2trash 就用佢，否則 macOS 用 Finder）"""
+    """Move the file to the Trash (use send2trash if installed, otherwise Finder on macOS)"""
     try:
         from send2trash import send2trash
     except ImportError:
@@ -333,7 +333,7 @@ def move_to_trash(file_path):
         return
 
     if sys.platform == 'darwin':
-        # 用 argv 傳路徑，避免檔名有引號或特殊字元時出錯
+        # Pass the path via argv so quotes or special characters in file names do not break it
         result = subprocess.run(
             [
                 'osascript',
@@ -352,7 +352,7 @@ def move_to_trash(file_path):
     raise OSError('未安裝 send2trash，無法移到垃圾桶（可執行 pip3 install send2trash）')
 
 def remove_local_file(file_path, permanent):
-    """根據設定移除本機影片檔案"""
+    """Remove the local video file according to the settings"""
     if permanent:
         file_path.unlink()
         print(f"  [清理] 已永久刪除本機檔案: {file_path}")
@@ -361,7 +361,7 @@ def remove_local_file(file_path, permanent):
         print(f"  [清理] 已將本機檔案移到垃圾桶: {file_path}")
 
 def scan_video_files(folder_path, extensions):
-    """遞迴搜尋指定資料夾中的所有影片檔案"""
+    """Recursively find all video files in the given folder"""
     folder = Path(folder_path)
     if not folder.exists() or not folder.is_dir():
         sys.exit(f"[錯誤] 資料夾不存在或非有效目錄: {folder_path}")
@@ -386,7 +386,7 @@ def main():
     state = load_state()
     youtube = get_authenticated_service()
 
-    # 取得或建立播放清單 ID
+    # Get or create the playlist ID
     playlist_id = None
     if CONFIG["playlist_name"]:
         playlist_id = get_or_create_playlist(
@@ -395,7 +395,7 @@ def main():
             CONFIG["privacy_status"]
         )
 
-    # 逐一上傳並歸入清單
+    # Upload each video and add it to the playlist
     for idx, video_path in enumerate(video_files, start=1):
         print(f"\n處理第 [{idx}/{len(video_files)}] 部影片...")
         key = str(video_path.resolve())
@@ -415,7 +415,7 @@ def main():
                 entry["playlist_added"] = True
                 save_state(state)
 
-            # 上傳成功（或之前已上傳過）先至移除本機檔案
+            # Remove the local file only after a successful upload (or if it was uploaded before)
             if (
                 video_id
                 and CONFIG["remove_local_after_upload"]
@@ -432,7 +432,7 @@ def main():
             return
         except HttpError as e:
             print(f"  [API 錯誤] 無法上傳 {video_path.name}: {e}")
-            # 配額用完就唔好再試落去
+            # Stop trying once the quota is exhausted
             if e.resp.status == 403 and b'quotaExceeded' in (e.content or b''):
                 print("  [停止] 已超出 YouTube API 配額，請稍後再執行（進度已儲存）。")
                 return
