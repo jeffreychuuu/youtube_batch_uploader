@@ -177,7 +177,10 @@ cp config.example.json config.json
   "chunk_size_mb": 32,
   "max_retries": 5,
   "remove_local_after_upload": false,
-  "remove_local_permanent": false
+  "remove_local_permanent": false,
+  "export_converted_source": false,
+  "remove_original_after_conversion": false,
+  "remove_original_permanent": false
 }
 ```
 
@@ -190,12 +193,17 @@ cp config.example.json config.json
 | `privacy_status` | `public` / `unlisted` (visible via link) / `private` |
 | `made_for_kids` | `True` = content made for kids; `False` = not made for kids |
 | `video_extensions` | Extensions to scan |
-| `convert_extensions` | Extensions transcoded to MP4 with ffmpeg before upload (default `[".vob"]`); add `".avi"` to force AVI transcoding |
-| `part_duration_hours` | Length of each part in hours (default `1`; `0` = never split). Set `0.25` for unverified accounts (15-minute limit) |
+| `convert_extensions` | Extensions transcoded to MP4 with ffmpeg before upload (default `[".vob"]`); add `".avi"` to force AVI transcoding. This only controls conversion — cuts are accepted for every format |
+| `part_duration_hours` | Length of each part in hours (default `1`; `0` = never split). Applies to **every** upload, including MP4/MOV/AVI. Set `0.25` for unverified accounts (15-minute limit) |
 | `chunk_size_mb` | Size of each upload chunk; must be a multiple of 256 KB. 16–32 recommended for large files |
 | `max_retries` | Maximum retries per chunk on network errors / 5xx |
-| `remove_local_after_upload` | `true` = remove the local video after a successful upload; `false` = keep it (default) |
-| `remove_local_permanent` | Removal method: `false` = move to Trash (recoverable, default) / `true` = delete permanently (irreversible) |
+| `remove_local_after_upload` | `true` = remove the local source after a successful upload; `false` = keep it (default). Golden files are never removed |
+| `remove_local_permanent` | Removal method for post-upload cleanup: `false` = move to Trash (recoverable, default) / `true` = delete permanently (irreversible) |
+| `export_converted_source` | `true` = keep the converted MP4 next to the source (or its `VIDEO_TS` parent) and reuse it as the source of record |
+| `remove_original_after_conversion` | `true` = remove the original files after the converted MP4 is verified (requires `export_converted_source`) |
+| `remove_original_permanent` | Removal method for conversion-time cleanup: `false` = move to Trash (default) / `true` = delete permanently. Independent of `remove_local_permanent` |
+
+**Converted sources and golden files.** When `export_converted_source` is enabled, a converted file becomes a *golden source*: later runs cut, split and upload from it instead of re-reading the originals. Cut-free uploads are split with stream copy (fast, no re-encode); uploads with cuts are re-encoded. `remove_original_after_conversion` is the only setting that removes the original files at conversion time — `remove_local_after_upload` never removes a golden file.
 
 ### 3.2 Run
 

@@ -9,5 +9,8 @@
   "chunk_size_mb": 32,
   "max_retries": 5,
   "remove_local_after_upload": false,
-  "remove_local_permanent": false
+  "remove_local_permanent": false,
+  "export_converted_source": false,
+  "remove_original_after_conversion": false,
+  "remove_original_permanent": false
 }
