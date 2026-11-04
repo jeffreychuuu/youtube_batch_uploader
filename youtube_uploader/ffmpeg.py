@@ -15,6 +15,19 @@ CUT_QUALITY = 65
 CONVERT_VERSION = 3
 
 
+def describe_inputs(files):
+    """Human-readable description of the conversion inputs"""
+    if len(files) == 1:
+        return files[0].name
+    suffixes = sorted({
+        path.suffix.lstrip('.').upper()
+        for path in files
+        if path.suffix
+    })
+    kind = '/'.join(suffixes) if suffixes else '影片'
+    return f"合併 {len(files)} 個 {kind} 檔案"
+
+
 def video_encode_args(encoder=None, quality=None):
     """Video encoder arguments for golden conversion or cut re-encoding"""
     if encoder == 'h264_videotoolbox':
@@ -244,15 +257,11 @@ def convert_to_mp4(files, cuts=None, encoder=None, quality=None):
     if has_audio and not sample_rate:
         raise RuntimeError('無法讀取來源音訊 sample rate，請檢查檔案')
 
-    if len(files) == 1:
-        source_desc = files[0].name
-    else:
-        source_desc = f"合併 {len(files)} 段 VOB"
-        print(f"  [轉檔] {source_desc} -> MP4（H.264/AAC），需時可能較長...")
+    source_desc = describe_inputs(files)
+    if len(files) > 1:
         for file_path in files:
             print(f"    - {file_path.name}")
-    if len(files) == 1:
-        print(f"  [轉檔] {source_desc} -> MP4（H.264/AAC），需時可能較長...")
+    print(f"  [轉檔] {source_desc} -> MP4（H.264/AAC），需時可能較長...")
 
     tmp_path = target.with_name(target.name + '.part.mp4')
 

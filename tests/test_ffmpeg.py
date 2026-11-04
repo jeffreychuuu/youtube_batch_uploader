@@ -4,8 +4,8 @@ import unittest
 from pathlib import Path
 
 from youtube_uploader.ffmpeg import (
-    build_filter_graph, conversion_fingerprint, move_converted_to_source,
-    verify_video, video_encode_args,
+    build_filter_graph, conversion_fingerprint, describe_inputs,
+    move_converted_to_source, verify_video, video_encode_args,
 )
 
 
@@ -47,6 +47,29 @@ class BuildFilterGraphTests(unittest.TestCase):
         self.assertIn('atrim=start=0:end=10', graph)
         self.assertIn('atrim=start=20', graph)
         self.assertEqual(map_args, ['-map', '[vout]', '-map', '[acat]'])
+
+
+class DescribeInputsTests(unittest.TestCase):
+    def test_single_file_uses_its_name(self):
+        self.assertEqual(
+            describe_inputs([Path('/v/Clip.mp4')]), 'Clip.mp4'
+        )
+
+    def test_vob_merge_names_the_format(self):
+        self.assertEqual(
+            describe_inputs([
+                Path('/v/a.VOB'), Path('/v/b.VOB'), Path('/v/c.VOB'),
+            ]),
+            '合併 3 個 VOB 檔案',
+        )
+
+    def test_mixed_merge_lists_each_format(self):
+        self.assertEqual(
+            describe_inputs([
+                Path('/v/a.AVI'), Path('/v/b.AVI'), Path('/v/c.MKV'),
+            ]),
+            '合併 3 個 AVI/MKV 檔案',
+        )
 
 
 class VideoEncodeArgsTests(unittest.TestCase):
