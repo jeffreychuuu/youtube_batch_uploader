@@ -19,7 +19,7 @@ def run_convert_only(config):
         )
 
     video_files = scan_video_files(
-        config["root_folder"], config["video_extensions"]
+        config["root_folder"], config["convert_extensions"]
     )
     convert_extensions = {ext.lower() for ext in config["convert_extensions"]}
     jobs = build_upload_jobs(
@@ -37,11 +37,6 @@ def run_convert_only(config):
     state = load_state()
     mark_golden_jobs(jobs, state)
     skipped_sources = skip_converted_source_jobs(jobs, state)
-    if skipped_sources and not any(job.get("golden") for job in jobs):
-        sys.exit(
-            "[錯誤] 有 golden source 記錄，但喺掃描範圍搵唔到對應 MP4；"
-            "請確認 root_folder 包含 golden 檔案。"
-        )
 
     pending = [
         job for job in jobs

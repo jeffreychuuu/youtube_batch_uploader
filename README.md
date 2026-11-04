@@ -172,7 +172,6 @@ cp upload_config.example.json upload_config.json
 ```json
 {
   "root_folder": "/path/to/your/videos",
-  "video_extensions": [".mp4", ".mov", ".mkv", ".avi", ".m4v", ".vob"],
   "convert_extensions": [".vob"],
   "combine_mode": "vob",
   "combine_extensions": [".vob"],
@@ -188,8 +187,7 @@ cp upload_config.example.json upload_config.json
 | Setting | Description |
 |---|---|
 | `root_folder` | Source folder for videos; all subfolders are scanned recursively |
-| `video_extensions` | Extensions to scan |
-| `convert_extensions` | Extensions transcoded to MP4 with ffmpeg before upload (default `[".vob"]`); add `".avi"` to force AVI transcoding. This only controls conversion — cuts are accepted for every format |
+| `convert_extensions` | Extensions transcoded to MP4 with ffmpeg (default `[".vob"]`); add `".avi"` to force AVI transcoding. The convert script scans exactly these extensions |
 | `combine_mode` | `"vob"` (default) merges VOB title sets only; `"folder"` also merges every file of a `combine_extensions` extension in the same folder, in natural order; `"none"` makes every file its own job |
 | `combine_extensions` | Extensions eligible for combining in `"folder"` mode (default `[".vob"]`). Every entry must also be in `convert_extensions` |
 | `combined_names` | Per-folder custom name for a combined video. The key is the group title before the suffix (for example `My Video`, or `Family (VTS_01)` / `Family (M2TS)` when a folder has multiple groups). Unlisted groups use `<folder> [combined]` |

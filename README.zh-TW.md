@@ -172,7 +172,6 @@ cp upload_config.example.json upload_config.json
 ```json
 {
   "root_folder": "/path/to/your/videos",
-  "video_extensions": [".mp4", ".mov", ".mkv", ".avi", ".m4v", ".vob"],
   "convert_extensions": [".vob"],
   "combine_mode": "vob",
   "combine_extensions": [".vob"],
@@ -188,8 +187,7 @@ cp upload_config.example.json upload_config.json
 | 設定 | 說明 |
 |---|---|
 | `root_folder` | 影片來源資料夾，會遞迴掃描所有子資料夾 |
-| `video_extensions` | 要掃描的副檔名 |
-| `convert_extensions` | 先用 ffmpeg 轉成 MP4 的副檔名（預設 `[".vob"]`）；加入 `".avi"` 可強制 AVI 轉檔。呢個設定只管轉檔，唔再限制 cut——所有格式都接受 cuts |
+| `convert_extensions` | 先用 ffmpeg 轉成 MP4 的副檔名（預設 `[".vob"]`）；加入 `".avi"` 可強制 AVI 轉檔。Convert script 只會掃描呢啲副檔名 |
 | `combine_mode` | `"vob"`（預設）只合併 VOB title set；`"folder"` 會額外將同一個 folder 內、`combine_extensions` 列出嘅格式全部按 natural order 合併；`"none"` 每條片獨立 job |
 | `combine_extensions` | `"folder"` 模式下有資格合併嘅副檔名（預設 `[".vob"]`）。每項都必須同時喺 `convert_extensions` 入面 |
 | `combined_names` | 個別 folder 嘅合併片自訂名稱。Key 係未加 suffix 嘅 group title（例如 `My Video`，或同一 folder 有多組時嘅 `Family (VTS_01)` / `Family (M2TS)`）。冇列出嘅 group 用 `<folder> [combined]` |

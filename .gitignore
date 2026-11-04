@@ -37,3 +37,6 @@ graphify-out/
 # ===== superpowers 規劃文件（本機用，唔 commit）=====
 docs/superpowers/
 .superpowers/
+
+# ===== 本機備份 =====
+*.bak-*

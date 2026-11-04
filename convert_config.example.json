@@ -1,6 +1,5 @@
 {
   "root_folder": "/path/to/your/videos",
-  "video_extensions": [".mp4", ".mov", ".mkv", ".avi", ".m4v", ".vob"],
   "convert_extensions": [".vob"],
   "combine_mode": "vob",
   "combine_extensions": [".vob"],

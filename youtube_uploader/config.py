@@ -19,9 +19,9 @@ CONVERTED_DIR = BASE_DIR / '.converted'
 # Convert settings: what to scan and how to turn it into golden MP4s.
 DEFAULT_CONVERT_CONFIG = {
     "root_folder": "/path/to/your/videos",
-    "video_extensions": [".mp4", ".mov", ".mkv", ".avi", ".m4v", ".vob"],
     # Extensions converted to MP4 with ffmpeg (VOB needs this; add e.g. ".avi"
-    # here if you want every AVI transcoded for compatibility)
+    # here if you want every AVI transcoded for compatibility). The convert
+    # script scans exactly these extensions.
     "convert_extensions": [".vob"],
     # Combining behavior: "vob" (title sets only), "folder" (same folder +
     # extension), or "none" (every file is its own job)
@@ -82,8 +82,6 @@ def _load_json(config_file, defaults):
 
 
 def _validate_convert(config):
-    if not isinstance(config["video_extensions"], list):
-        sys.exit("[錯誤] video_extensions 必須係 JSON 陣列，例如 [\".mp4\", \".mov\"]。")
     if not isinstance(config["convert_extensions"], list):
         sys.exit("[錯誤] convert_extensions 必須係 JSON 陣列，例如 [\".vob\"]。")
     if any(

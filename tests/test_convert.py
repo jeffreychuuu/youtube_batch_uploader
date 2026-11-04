@@ -7,7 +7,6 @@ from youtube_uploader.convert import run_convert_only
 
 BASE_CONFIG = {
     'root_folder': None,
-    'video_extensions': ['.mp4', '.vob'],
     'convert_extensions': ['.vob'],
     'combine_mode': 'vob',
     'combine_extensions': ['.vob'],
@@ -27,7 +26,7 @@ class ConvertOnlyTests(unittest.TestCase):
     @patch('youtube_uploader.convert.prepare_source')
     @patch('youtube_uploader.convert.load_state',
            return_value={'uploads': {}, 'golden_sources': {}})
-    def test_converts_only_convert_jobs(self, load_state, prepare, save):
+    def test_converts_only_convert_extensions(self, load_state, prepare, save):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp) / 'Folder'
             folder.mkdir()
@@ -35,7 +34,7 @@ class ConvertOnlyTests(unittest.TestCase):
             (folder / 'VTS_01_2.VOB').touch()
             (Path(tmp) / 'Clip.mp4').touch()
             summary = run_convert_only(dict(BASE_CONFIG, root_folder=tmp))
-        self.assertEqual(summary, {'converted': 1, 'skipped': 1, 'failed': 0})
+        self.assertEqual(summary, {'converted': 1, 'skipped': 0, 'failed': 0})
         self.assertEqual(prepare.call_count, 1)
         job = prepare.call_args.args[0]
         self.assertTrue(job['convert'])
