@@ -14,6 +14,7 @@
 - 支援 VOB（DVD）：同一資料夾的 `VTS_01_1.VOB`、`VTS_01_2.VOB`… 會按編號合併並用 ffmpeg 轉成 MP4，合併後的影片以資料夾名稱為標題
 - 長片會按 `part_duration_hours` 分段（預設每 1 小時一段），標題加上 `[part 1]`、`[part 2]`
 - 支援 cut-list：上傳前剪走被 YouTube flag 嘅時間範圍（`cuts.json`）
+- 支援 golden source：保留轉檔後嘅 MP4，之後再由佢剪／上傳；`convert_only.py` 可以喺毋須 YouTube 授權嘅情況下準備 golden 檔案
 - 可透過 `convert_extensions` 指定其他格式（例如 AVI）先用 ffmpeg 轉檔
 - 上傳完成後自動加入（或建立）指定播放清單，重跑不會重複加入
 - 進度記錄於 `upload_state.json`，已完成的檔案重跑時直接跳過
@@ -227,7 +228,17 @@ python3 batch_upload.py
 5. 逐條上傳影片（或分段），顯示進度百分比
 6. 上傳完成後加入播放清單
 
-### 3.3 關於「草稿」與發佈
+### 3.3 只轉檔（唔上傳）
+
+如果想預先準備 golden MP4、完全唔上傳，行另一個 entry point：
+
+```bash
+python3 convert_only.py
+```
+
+呢條路徑**永遠唔會**進行 YouTube 授權、亦唔會上傳。需要 `config.json` 入面 `export_converted_source: true`。佢會將所有 `convert_extensions` 入面嘅 job 轉檔，跟隨 `remove_original_after_conversion` / `remove_original_permanent` 決定要唔要移走原檔，跳過已經有 golden source 嘅檔案，最後印出成功／跳過／失敗數量。Cuts 同 `part_duration_hours` 喺呢個模式會被忽略；golden source 一定係完整未剪版本。
+
+### 3.4 關於「草稿」與發佈
 
 YouTube API **沒有「草稿」概念**，上傳完成後影片即會以 `privacy_status` 指定的狀態存在：
 
@@ -237,7 +248,7 @@ YouTube API **沒有「草稿」概念**，上傳完成後影片即會以 `priva
 | `unlisted` | 不會出現在公開搜尋結果，但有連結的人可以觀看 |
 | `public` | 上傳完成即公開 |
 
-### 3.4 上傳後自動清理本機檔案
+### 3.5 上傳後自動清理本機檔案
 
 在 `config.json` 設定：
 

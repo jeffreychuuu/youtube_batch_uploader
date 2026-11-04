@@ -14,6 +14,7 @@ Supports **resumable uploads**: if the connection drops, the machine shuts down,
 - VOB (DVD) support: multi-segment `VTS_01_1.VOB`, `VTS_01_2.VOB`, ... files are merged and transcoded to MP4 with ffmpeg; the merged video is titled after its folder
 - Long videos are split into parts (default every 1 hour) and titled `<name> [part 1]`, `<name> [part 2]`, ...
 - Cut-list support: remove time ranges flagged by YouTube before upload (`cuts.json`)
+- Golden source support: keep the converted MP4 and reuse it for later cuts and uploads; `convert_only.py` prepares golden files without YouTube authorization
 - Optional ffmpeg transcoding for other formats (e.g. AVI) via `convert_extensions`
 - Adds uploaded videos to a playlist (creating it if needed); reruns never add duplicates
 - Progress is stored in `upload_state.json`; completed files are skipped on rerun
@@ -227,7 +228,17 @@ The run will:
 5. Upload each video (or part) one by one, showing a progress percentage
 6. Add each uploaded video to the playlist
 
-### 3.3 "Draft" and publishing
+### 3.3 Convert only (no upload)
+
+To prepare golden MP4s without uploading anything, run the conversion-only entry point:
+
+```bash
+python3 convert_only.py
+```
+
+This path never authenticates with YouTube and never uploads. It requires `export_converted_source: true` in `config.json`. It converts every job whose extension is in `convert_extensions`, respects `remove_original_after_conversion` / `remove_original_permanent`, skips files that already have a golden source, and prints a converted/skipped/failed summary. Cuts and `part_duration_hours` are ignored here; the golden source is always the uncut full video.
+
+### 3.4 "Draft" and publishing
 
 The YouTube API **has no concept of a "draft"**: once an upload completes, the video immediately exists in the state specified by `privacy_status`:
 
@@ -237,7 +248,7 @@ The YouTube API **has no concept of a "draft"**: once an upload completes, the v
 | `unlisted` | Not discoverable in search, but anyone with the link can watch it |
 | `public` | Published immediately after upload |
 
-### 3.4 Automatic local cleanup after upload
+### 3.5 Automatic local cleanup after upload
 
 Set the following in `config.json`:
 
