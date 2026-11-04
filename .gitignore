@@ -31,3 +31,7 @@ venv/
 
 # ===== graphify 生成嘅圖表同 binary 產物 =====
 graphify-out/
+
+# ===== superpowers 規劃文件（本機用，唔 commit）=====
+docs/superpowers/
+.superpowers/
