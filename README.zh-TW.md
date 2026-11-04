@@ -136,7 +136,7 @@ cp config.example.json config.json
 ### 3.2 執行
 
 ```bash
-cd /path/to/youtube_video_upload
+cd /path/to/youtube_batch_uploader
 python batch_upload.py
 ```
 
@@ -287,7 +287,7 @@ Script 會自動重試；如果仍然失敗，再執行一次就會從斷點續�
 ## 6. 檔案結構
 
 ```text
-youtube_video_upload/
+youtube_batch_uploader/
 ├── batch_upload.py       # 主程式
 ├── config.example.json   # 設定範例（可 commit）
 ├── config.json           # 你的本機設定（不會被 commit）

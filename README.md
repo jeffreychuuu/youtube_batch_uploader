@@ -136,7 +136,7 @@ cp config.example.json config.json
 ### 3.2 Run
 
 ```bash
-cd /path/to/youtube_video_upload
+cd /path/to/youtube_batch_uploader
 python batch_upload.py
 ```
 
@@ -287,7 +287,7 @@ Warnings such as Python 3.9 being past end-of-life or urllib3 using LibreSSL do 
 ## 6. File Structure
 
 ```text
-youtube_video_upload/
+youtube_batch_uploader/
 ├── batch_upload.py       # Main script
 ├── config.example.json   # Example configuration (committed)
 ├── config.json           # Your local configuration (not committed)
