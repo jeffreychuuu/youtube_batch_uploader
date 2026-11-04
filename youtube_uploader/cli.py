@@ -124,7 +124,7 @@ def main(config=None):
                 apply_entry_settings(entry, cuts)
                 save_upload_state(state)
             elif cuts_added_or_changed:
-                print(f"[變更] cut 範圍已更新，重新處理：{job['display_name']}")
+                print(f"[變更] 剪接範圍已更新，重新處理：{job['display_name']}")
                 print_old_video_links(entry)
                 remove_cached_conversion(
                     files, stored_cuts_norm,
@@ -137,7 +137,7 @@ def main(config=None):
             elif cuts_removed:
                 if not completed:
                     print(
-                        "  [錯誤] 此影片之前有 cut-list，但 cuts_config.json 已移除相關 key；"
+                        "  [錯誤] 此影片之前有剪接清單，但 cuts_config.json 已移除相關 key；"
                         "為安全起見唔會自動上傳未剪版本。\n"
                         "        如確定要上傳未剪版本，請先刪除 upload_state.json 內該 entry。"
                     )

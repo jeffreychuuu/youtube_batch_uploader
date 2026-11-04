@@ -1,4 +1,5 @@
 """Video scanning, grouping and local file cleanup."""
+import os
 import re
 import subprocess
 import sys
@@ -36,6 +37,25 @@ def folder_display_name(folder):
     return folder.name
 
 
+def _common_file_prefix(files):
+    """Common prefix of the file stems in a folder, without trailing separators"""
+    prefix = os.path.commonprefix([path.stem for path in files])
+    prefix = prefix.rstrip('0123456789')
+    return prefix.rstrip(' -_.')
+
+
+def combined_name_base(folder, files, root_folder, name_source,
+                       allow_prefix=True):
+    """Base title for a combined job: folder, root folder, or file prefix"""
+    if name_source == 'root' and root_folder:
+        return Path(root_folder).name
+    if name_source == 'prefix' and allow_prefix:
+        prefix = _common_file_prefix(files)
+        if prefix:
+            return prefix
+    return folder_display_name(folder)
+
+
 def converted_source_path(job):
     """Path of the converted MP4, next to the source (or the VIDEO_TS parent)"""
     folder = job["files"][0].parent
@@ -49,11 +69,13 @@ def _combined_title(base):
     return f"{base} [combined]"
 
 
-def build_upload_jobs(video_files, convert_extensions, combine=True):
+def build_upload_jobs(video_files, convert_extensions, combine=True,
+                      root_folder=None, name_source='folder'):
     """Turn scanned files into upload jobs, optionally merging segments.
 
     `combine` merges VOB title sets and same-folder files of the same convert
     extension. When false, every file is its own job.
+    `name_source` picks the combined title: "folder", "root" or "prefix".
     DVD menu files (*_0.VOB and VIDEO_TS.VOB) are always skipped.
     """
     jobs = []
@@ -146,6 +168,10 @@ def build_upload_jobs(video_files, convert_extensions, combine=True):
         folder = group["folder"]
         folder_counts[folder] = folder_counts.get(folder, 0) + 1
 
+    folder_files = {}
+    for path in video_files:
+        folder_files.setdefault(path.parent, []).append(path)
+
     for group in groups.values():
         folder = group["folder"]
 
@@ -162,7 +188,10 @@ def build_upload_jobs(video_files, convert_extensions, combine=True):
                 )
 
             if merged:
-                title = folder_display_name(folder)
+                title = combined_name_base(
+                    folder, folder_files[folder], root_folder,
+                    name_source, allow_prefix=False,
+                )
                 if folder_counts[folder] > 1:
                     # Multiple groups in one folder: keep the titles distinct
                     title = f"{title} ({group['prefix']})"
@@ -185,7 +214,9 @@ def build_upload_jobs(video_files, convert_extensions, combine=True):
 
         files = sorted(group["files"], key=natural_sort_key)
         if len(files) > 1:
-            title = folder_display_name(folder)
+            title = combined_name_base(
+                folder, folder_files[folder], root_folder, name_source
+            )
             if folder_counts[folder] > 1:
                 extension = group["suffix"].lstrip('.').upper()
                 title = f"{title} ({extension})"

@@ -30,6 +30,8 @@ DEFAULT_CONVERT_CONFIG = {
     # Merge files that belong together: VOB title sets, and same-folder files
     # of the same convert extension. false = every file is its own job.
     "combine": True,
+    # Combined title source: "folder", "root" or "prefix"
+    "combined_name_source": "folder",
     # Encoder for golden conversion: "libx264" or "h264_videotoolbox" (macOS hardware)
     "convert_encoder": "libx264",
     # Quality value: CRF for libx264 (0-51), q:v for h264_videotoolbox (0-100)
@@ -98,6 +100,11 @@ def _validate_convert(config):
         sys.exit("[錯誤] convert_extensions 每項都必須係以 '.' 開頭的字串，例如 \".vob\"。")
     if not isinstance(config["combine"], bool):
         sys.exit("[錯誤] combine 必須係 true 或 false。")
+    if config["combined_name_source"] not in ("folder", "root", "prefix"):
+        sys.exit(
+            "[錯誤] combined_name_source 只可以係 "
+            "'folder'、'root' 或 'prefix'。"
+        )
     if config["convert_encoder"] not in ("libx264", "h264_videotoolbox"):
         sys.exit(
             "[錯誤] convert_encoder 只可以係 'libx264' 或 'h264_videotoolbox'。"

@@ -22,6 +22,18 @@ class ConvertConfigTests(unittest.TestCase):
         self.assertFalse(config['remove_original_permanent'])
         self.assertTrue(config['combine'])
 
+    def test_combined_name_source_defaults_to_folder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = load_convert_config(_write(tmp, 'convert_config.json', {}))
+        self.assertEqual(config['combined_name_source'], 'folder')
+
+    def test_rejects_unknown_combined_name_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(SystemExit):
+                load_convert_config(_write(tmp, 'convert_config.json', {
+                    'combined_name_source': 'filename',
+                }))
+
     def test_encoder_defaults(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = load_convert_config(_write(tmp, 'convert_config.json', {}))

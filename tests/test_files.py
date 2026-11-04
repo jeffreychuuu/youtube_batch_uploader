@@ -130,6 +130,96 @@ class CombineTests(unittest.TestCase):
 
             self.assertEqual(jobs[0]['title'], 'clip')
 
+    def test_combine_true_uses_root_folder_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'Root Folder'
+            folder = root / 'Subfolder'
+            folder.mkdir(parents=True)
+            files = [
+                folder / 'Event-100-00.AVI',
+                folder / 'Event-100-01.AVI',
+            ]
+            for path in files:
+                path.touch()
+
+            jobs = build_upload_jobs(
+                files, {'.avi'}, combine=True,
+                root_folder=root, name_source='root',
+            )
+
+            self.assertEqual(jobs[0]['title'], 'Root Folder [combined]')
+
+    def test_combine_true_uses_common_file_prefix(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / 'Subfolder'
+            folder.mkdir()
+            files = [
+                folder / 'Event-100-00.AVI',
+                folder / 'Event-100-01.AVI',
+            ]
+            for path in files:
+                path.touch()
+
+            jobs = build_upload_jobs(
+                files, {'.avi'}, combine=True, name_source='prefix',
+            )
+
+            self.assertEqual(
+                jobs[0]['title'], 'Event-100 [combined]'
+            )
+
+    def test_prefix_uses_all_videos_in_folder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / 'Subfolder'
+            folder.mkdir()
+            files = [
+                folder / 'Event-100-00.AVI',
+                folder / 'Event-100-01.AVI',
+                folder / 'Event-100-02.MKV',
+            ]
+            for path in files:
+                path.touch()
+
+            jobs = build_upload_jobs(
+                files, {'.avi', '.mkv'}, combine=True,
+                name_source='prefix',
+            )
+
+            avi_job = next(
+                job for job in jobs if job['files'][0].suffix == '.AVI'
+            )
+            self.assertEqual(
+                avi_job['title'], 'Event-100 (AVI) [combined]'
+            )
+
+    def test_prefix_falls_back_to_folder_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / 'Folder'
+            folder.mkdir()
+            files = [folder / 'A.avi', folder / 'B.avi']
+            for path in files:
+                path.touch()
+
+            jobs = build_upload_jobs(
+                files, {'.avi'}, combine=True, name_source='prefix',
+            )
+
+            self.assertEqual(jobs[0]['title'], 'Folder [combined]')
+
+    def test_vob_prefix_uses_folder_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / 'Folder'
+            folder.mkdir()
+            files = [folder / 'VTS_01_1.VOB', folder / 'VTS_01_2.VOB']
+            for path in files:
+                path.touch()
+
+            jobs = build_upload_jobs(
+                files, {'.vob'}, combine=True, name_source='prefix',
+            )
+
+            self.assertEqual(jobs[0]['title'], 'Folder [combined]')
+
 
 
 class ConvertedSourcePathTests(unittest.TestCase):

@@ -150,7 +150,7 @@ def build_filter_graph(files, cuts, has_audio, fps_expr, sample_rate):
         keep.append((previous, None))
         keep = [(start, end) for start, end in keep if end is None or end > start]
         if not keep:
-            raise ValueError('cut 範圍覆蓋咗整段影片')
+            raise ValueError('剪接範圍覆蓋咗整段影片')
 
         if len(keep) > 1:
             graph.append(
@@ -264,7 +264,7 @@ def convert_to_mp4(files, cuts=None, encoder=None, quality=None):
         stream_args.append('-an')
     if cuts:
         removed = sum(end - start for start, end in cuts)
-        print(f"  [剪輯] 移除 {len(cuts)} 段，共 {format_timestamp(removed)}:")
+        print(f"  [剪接] 移除 {len(cuts)} 段，共 {format_timestamp(removed)}:")
         for start, end in cuts:
             print(f"    - {format_timestamp(start)} - {format_timestamp(end)}")
 

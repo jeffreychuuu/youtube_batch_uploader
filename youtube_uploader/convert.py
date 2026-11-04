@@ -18,6 +18,8 @@ def run_convert_only(config):
         video_files,
         convert_extensions,
         config["combine"],
+        root_folder=config["root_folder"],
+        name_source=config["combined_name_source"],
     )
     if not jobs:
         print(f"[提示] 在 {config['root_folder']} 內找不到相容的影片檔案。")

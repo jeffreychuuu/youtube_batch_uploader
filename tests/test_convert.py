@@ -9,12 +9,29 @@ BASE_CONFIG = {
     'root_folder': None,
     'convert_extensions': ['.vob'],
     'combine': True,
+    'combined_name_source': 'folder',
     'remove_original_after_conversion': False,
     'remove_original_permanent': False,
 }
 
 
 class ConvertOnlyTests(unittest.TestCase):
+    @patch('youtube_uploader.convert.build_upload_jobs', return_value=[])
+    @patch('youtube_uploader.convert.scan_video_files', return_value=[])
+    def test_passes_combined_name_source(self, scan, build):
+        summary = run_convert_only(dict(
+            BASE_CONFIG,
+            root_folder='/root',
+            combined_name_source='prefix',
+        ))
+        self.assertEqual(summary, {
+            'converted': 0, 'skipped': 0, 'failed': 0,
+        })
+        build.assert_called_once_with(
+            [], {'.vob'}, True,
+            root_folder='/root', name_source='prefix',
+        )
+
     @patch('youtube_uploader.convert.save_convert_state')
     @patch('youtube_uploader.convert.prepare_source')
     @patch('youtube_uploader.convert.load_convert_state',

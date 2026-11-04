@@ -118,7 +118,7 @@ In other words, you only need:
 
 All three videos will be uploaded with the titles "Video A", "Video B", and "Video C".
 
-### 2.1 Cut-list: remove flagged segments
+### 2.1 Cut-list (trim/remove flagged segments)
 
 If YouTube flags a video and gives time ranges to remove, create `config/cuts_config.json`:
 
@@ -209,6 +209,7 @@ cp config/cuts_config.example.json config/cuts_config.json
   "root_folder": "/path/to/your/videos",
   "convert_extensions": [".vob"],
   "combine": true,
+  "combined_name_source": "folder",
   "convert_encoder": "libx264",
   "convert_quality": 20,
   "remove_original_after_conversion": false,
@@ -221,6 +222,7 @@ cp config/cuts_config.example.json config/cuts_config.json
 | `root_folder` | Source folder for videos; all subfolders are scanned recursively |
 | `convert_extensions` | Extensions transcoded to MP4 with ffmpeg (default `[".vob"]`); add `".avi"` to force AVI transcoding. The convert script scans exactly these extensions |
 | `combine` | `true` (default) merges VOB title sets and groups same-folder files of **any** extension listed in `convert_extensions`, in natural order; `false` makes every file its own job |
+| `combined_name_source` | Combined title source: `folder` (default, immediate folder name), `root` (configured `root_folder` name), or `prefix` (common prefix of all video filenames in that folder; VOB groups fall back to the folder name) |
 | `convert_encoder` | Encoder for golden conversion: `libx264` (default, best compression) or `h264_videotoolbox` (macOS hardware, faster but less efficient) |
 | `convert_quality` | CRF `0`–`51` for `libx264` (lower = better quality, larger file); `q:v` `0`–`100` for `h264_videotoolbox` (higher = better quality, larger file) |
 | `remove_original_after_conversion` | `true` = remove the original files after the converted MP4 is verified; also cleans up sources of already-converted jobs on a later run |
@@ -258,7 +260,7 @@ Your local config files live in `config/` and are listed in `.gitignore`, so the
 
 The cut list and its encoder settings live in `config/cuts_config.json`; see section 2.1.
 
-**Combining files.** `combine` decides whether files are merged before conversion. `true` (default) merges VOB title sets and groups same-folder files of **any** extension listed in `convert_extensions` (for example `.avi`, `.mkv`, or `.m2ts` segments), in natural order. `false` makes every source file its own conversion job and upload. A combined group is named `<folder> [combined]` and produces one golden MP4 and one upload; with `false`, each source file keeps its own filename as the title and gets its own golden MP4 and upload. Formats outside `convert_extensions` are uploaded as-is and are not combined.
+**Combining files.** `combine` decides whether files are merged before conversion. `true` (default) merges VOB title sets and groups same-folder files of **any** extension listed in `convert_extensions` (for example `.avi`, `.mkv`, or `.m2ts` segments), in natural order. `false` makes every source file its own conversion job and upload. A combined group is named `<folder> [combined]` and produces one golden MP4 and one upload; with `false`, each source file keeps its own filename as the title and gets its own golden MP4 and upload. Formats outside `convert_extensions` are uploaded as-is and are not combined. `combined_name_source` controls the combined title: `folder` (default) uses the immediate folder name, `root` uses the configured `root_folder` name, and `prefix` uses the common prefix of all video filenames in that folder (for example `Event-100-00.AVI` + `Event-100-01.AVI` → `Event-100 [combined]`).
 
 **Converted sources and golden files.** A converted file always becomes a *golden source*: later runs cut and upload from it instead of re-reading the originals. Uploads with cuts are re-encoded; uploads without cuts use the file as-is. `remove_original_after_conversion` is the only setting that removes the original files at conversion time — `remove_local_after_upload` never removes a golden file. A golden job uses its recorded title as the `config/cuts_config.json` key, so cuts keep working after conversion. Two sources that would write the same golden file stop the run instead of overwriting.
 

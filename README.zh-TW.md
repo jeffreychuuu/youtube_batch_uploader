@@ -13,7 +13,7 @@
 - 遞迴掃描指定資料夾，自動上傳所有支援格式的影片
 - 支援 VOB（DVD）：同一資料夾的 `VTS_01_1.VOB`、`VTS_01_2.VOB`… 會按編號合併並用 ffmpeg 轉成 MP4，合併後的影片以 `<folder> [combined]` 為標題
 - 每條片會以單一檔案上傳
-- 支援 cut-list：上傳前剪走被 YouTube flag 嘅時間範圍（`config/cuts_config.json`）
+- 支援剪接（cut-list）：上傳前剪走被 YouTube flag 嘅時間範圍（`config/cuts_config.json`）
 - 支援 golden source：保留轉檔後嘅 MP4，之後再由佢剪／上傳；`convert_only.py` 可以喺毋須 YouTube 授權嘅情況下準備 golden 檔案
 - 可透過 `convert_extensions` 指定其他格式（例如 AVI）先用 ffmpeg 轉檔
 - 上傳完成後自動加入（或建立）指定播放清單，重跑不會重複加入
@@ -30,7 +30,7 @@
 
 - macOS（Windows / Linux 亦適用，只需調整路徑）
 - Python 3.8 或以上
-- ffmpeg（任何需要轉檔嘅格式，即 `convert_extensions` 入面嘅檔案，以及執行 cut 時都需要）
+- ffmpeg（任何需要轉檔嘅格式，即 `convert_extensions` 入面嘅檔案，以及執行剪接時都需要）
 - 一個已建立頻道的 YouTube / Google 帳號；上傳超過 15 分鐘的影片需要驗證帳戶（YouTube 上限為每段 12 小時 / 256 GB）
 - 已啟用 YouTube Data API v3 的 Google Cloud 專案
 
@@ -49,9 +49,9 @@ pip3 install google-api-python-client google-auth-oauthlib google-auth-httplib2
 > 如果沒有 `pip3`，請先確認是否已安裝 Python 3：`python3 --version`。
 > 本機如果沒有 `python` 指令，請改用 `python3`（或自行建立 alias / wrapper）。
 
-### 1.2 安裝 ffmpeg（轉檔與 cut 需要）
+### 1.2 安裝 ffmpeg（轉檔與剪接需要）
 
-有啲格式（例如 VOB）無法直接上傳到 YouTube。Script 會用 ffmpeg 將 `convert_extensions` 入面任何格式轉成 MP4，亦會用 ffmpeg 執行 cut，因此 ffmpeg 必須在 `PATH` 上：
+有啲格式（例如 VOB）無法直接上傳到 YouTube。Script 會用 ffmpeg 將 `convert_extensions` 入面任何格式轉成 MP4，亦會用 ffmpeg 執行剪接，因此 ffmpeg 必須在 `PATH` 上：
 
 ```bash
 brew install ffmpeg          # macOS
@@ -60,7 +60,7 @@ brew install ffmpeg          # macOS
 
 Windows：由 [ffmpeg.org](https://ffmpeg.org/) 下載並加入 `PATH`。
 
-> `convert_extensions` 入面任何格式（預設 `.vob`；加入 `.avi`、`.m2ts` 等就會轉埋）同所有 cut 都需要 ffmpeg。唔喺 `convert_extensions` 嘅格式會直接上傳。
+> `convert_extensions` 入面任何格式（預設 `.vob`；加入 `.avi`、`.m2ts` 等就會轉埋）同所有剪接都需要 ffmpeg。唔喺 `convert_extensions` 嘅格式會直接上傳。
 
 ### 1.3 建立 YouTube API 憑證
 
@@ -104,7 +104,7 @@ Script 會直接遞迴掃描 `root_folder` 內所有影片檔案，並以**檔�
 - 單一 VOB 則沿用原本的檔名作為標題
 - 用 ffmpeg 將來源轉成單一 MP4（H.264/AAC）
 - 將轉檔後嘅 MP4 保留喺來源旁邊（或 `VIDEO_TS` 上一層）做 golden source
-- Cut re-encode 會暫存喺 `.converted/`，上傳中斷後重跑毋須重新編碼；上傳成功後自動刪除
+- 剪接 re-encode 會暫存喺 `.converted/`，上傳中斷後重跑毋須重新編碼；上傳成功後自動刪除
 
 也就是說，你只需要：
 
@@ -118,9 +118,9 @@ Script 會直接遞迴掃描 `root_folder` 內所有影片檔案，並以**檔�
 
 三條影片都會被上傳，標題分別是「影片 A」、「影片 B」、「影片 C」。
 
-### 2.1 Cut-list：剪走被 YouTube flag 嘅片段
+### 2.1 剪接（cut-list）：剪走被 YouTube flag 嘅片段
 
-如果 YouTube 話某條片違規並列出要移除嘅時間範圍，喺 `config/` 建立 `cuts_config.json`：
+以下所講嘅「剪接」就係將指定時間範圍由影片移除。如果 YouTube 話某條片違規並列出要移除嘅時間範圍，喺 `config/` 建立 `cuts_config.json`：
 
 ```json
 {
@@ -134,7 +134,7 @@ Script 會直接遞迴掃描 `root_folder` 內所有影片檔案，並以**檔�
 }
 ```
 
-所有 cut 範圍都放喺 `cuts` key 下面。Flat range list 係單一批次，時間以**完整未剪 golden 影片 timeline** 為準。
+所有剪接範圍都放喺 `cuts` key 下面。Flat range list 係單一批次，時間以**完整未剪 golden 影片 timeline** 為準。
 
 如果 YouTube flag 嘅係**已經剪過嘅版本**，唔使自己計 offset，加多一批就得：
 
@@ -153,11 +153,11 @@ Script 會直接遞迴掃描 `root_folder` 內所有影片檔案，並以**檔�
   - 第 1 批用 golden timeline
   - 第 2 批用第 1 批剪完之後嘅 timeline（即係上傳版本）
   - 第 3 批用第 1+2 批剪完之後嘅 timeline，如此類推
-- Script 會自動將每批轉返 golden timeline，最後合併成一組 cuts，**ffmpeg 只行一次**。
+- Script 會自動將每批轉返 golden timeline，最後合併成一組剪接範圍，**ffmpeg 只行一次**。
 - 批次範圍可以跨越之前已剪走嘅片段；script 會自動將佢拆開，對應返 golden timeline 嘅各部分。
 - 例子：第 1 批剪 `20:00-30:00`；YouTube 喺上傳版本 flag `25:00-27:00`。將佢加做第 2 批，script 會自動對應返 golden timeline 嘅 `35:00-37:00`。
 
-**Cut encoder 設定。** Cuts config 最頂可以有兩個 reserved keys，控制 cut re-encode 點做：
+**剪接 encoder 設定。** `cuts_config.json` 最頂可以有兩個 reserved keys，控制剪接 re-encode 點做：
 
 ```json
 {
@@ -172,17 +172,17 @@ Script 會直接遞迴掃描 `root_folder` 內所有影片檔案，並以**檔�
 - `cut_encoder`：`libx264`（預設）或 `h264_videotoolbox`（macOS 硬體 encoder，快好多）
 - `cut_quality`：`libx264` 用 CRF `0`–`51`（越低畫質越好、檔案越大）；`h264_videotoolbox` 用 `q:v` `0`–`100`（越高畫質越好、檔案越大）。`65` 係中等偏高嘅硬體設定；想更好畫質可以用 `70`–`75`，想檔案細啲可以用 `50`–`60`。
 
-呢兩個設定會套用到所有 cut re-encode；Golden 轉檔用 `config/convert_config.json` 嘅 `convert_encoder` / `convert_quality`（預設 `libx264` CRF 20）。
+呢兩個設定會套用到所有剪接 re-encode；Golden 轉檔用 `config/convert_config.json` 嘅 `convert_encoder` / `convert_quality`（預設 `libx264` CRF 20）。
 
-**自動 description。** 所有有 cut 嘅上傳會自動加上 `因違反 YouTube 政策，已剪走以下片段（共 X）：`，後面列出被剪走嘅範圍；`X` 係總共剪走嘅時間。
+**自動 description。** 所有有剪接嘅上傳會自動加上 `因違反 YouTube 政策，已剪走以下片段（共 X）：`，後面列出被剪走嘅範圍；`X` 係總共剪走嘅時間。
 
 其他規則：
 
 - `cuts` 入面嘅 key 係影片標題：合併 group 用 `<folder> [combined]`，單檔用檔名（不含副檔名）。
 - 時間格式：`MM:SS` 或 `HH:MM:SS`；開始/結束用 `-`、`–`、`—`、`~` 或 `to` 分隔。
 - JSON 唔支援 comment；格式可參考 `config/cuts_config.example.json`。
-- 剪輯會喺 ffmpeg 轉檔時進行。
-- 改 cut-list 會令轉檔 cache 失效。如果條片之前已上傳、來源檔案仍然存在，script 會重新處理並上傳修正版；舊嘅 YouTube 影片唔會自動刪除。
+- 剪接會喺 ffmpeg 轉檔時進行。
+- 改剪接清單會令轉檔 cache 失效。如果條片之前已上傳、來源檔案仍然存在，script 會重新處理並上傳修正版；舊嘅 YouTube 影片唔會自動刪除。
 - Golden 檔案永遠唔會被 `remove_local_after_upload` 刪除；原檔移除由 `remove_original_after_conversion` 控制。
 - `config/cuts_config.json` 已加入 `.gitignore`；格式可參考 `config/cuts_config.example.json`。
 
@@ -198,7 +198,7 @@ Script 會直接遞迴掃描 `root_folder` 內所有影片檔案，並以**檔�
 cp config/convert_config.example.json config/convert_config.json
 cp config/upload_config.example.json config/upload_config.json
 
-# 可選：只有已經有 cut 範圍時才需要
+# 可選：只有已經有剪接範圍時才需要
 cp config/cuts_config.example.json config/cuts_config.json
 ```
 
@@ -209,6 +209,7 @@ cp config/cuts_config.example.json config/cuts_config.json
   "root_folder": "/path/to/your/videos",
   "convert_extensions": [".vob"],
   "combine": true,
+  "combined_name_source": "folder",
   "convert_encoder": "libx264",
   "convert_quality": 20,
   "remove_original_after_conversion": false,
@@ -221,6 +222,7 @@ cp config/cuts_config.example.json config/cuts_config.json
 | `root_folder` | 影片來源資料夾，會遞迴掃描所有子資料夾 |
 | `convert_extensions` | 先用 ffmpeg 轉成 MP4 的副檔名（預設 `[".vob"]`）；加入 `".avi"` 可強制 AVI 轉檔。Convert script 只會掃描呢啲副檔名 |
 | `combine` | `true`（預設）會合併 VOB title set，同一個 folder 內**任何** `convert_extensions` 格式嘅檔案亦會按 natural order 合併；`false` 每條片獨立 job |
+| `combined_name_source` | 合併 job 嘅命名來源：`folder`（預設，用所在資料夾名）、`root`（用 `root_folder` 名）或 `prefix`（同一個資料夾內所有影片檔名嘅共同 prefix；VOB 會 fallback 用資料夾名） |
 | `convert_encoder` | Golden 轉檔用嘅 encoder：`libx264`（預設，壓縮效率最好）或 `h264_videotoolbox`（macOS 硬體，快但效率較低） |
 | `convert_quality` | `libx264` 用 CRF `0`–`51`（越低畫質越好、檔案越大）；`h264_videotoolbox` 用 `q:v` `0`–`100`（越高畫質越好、檔案越大） |
 | `remove_original_after_conversion` | `true` = 轉檔後 MP4 驗證成功就移除原始檔案；之後再行 convert 亦會清走已轉檔 job 嘅原檔 |
@@ -254,13 +256,13 @@ cp config/cuts_config.example.json config/cuts_config.json
 | `remove_local_after_upload` | `true` = 上傳成功後移除本機來源；`false` = 保留（預設）。Golden 檔案永遠唔會被移除 |
 | `remove_local_permanent` | 上傳後清理嘅移除方式：`false` = 移至垃圾桶（可還原，預設）/ `true` = 永久刪除（無法還原） |
 
-你嘅本機 config 檔案都放在 `config/`，並已加入 `.gitignore`，**不會被 commit**；即使你 fork 了這個 repo，也可以安全地放置自己的路徑。各 config **完全獨立**：`config/upload_config.json` 永遠唔會讀 `config/convert_config.json`，cut-list 只會喺上傳時讀取。冇檔案時會用內建預設值。
+你嘅本機 config 檔案都放在 `config/`，並已加入 `.gitignore`，**不會被 commit**；即使你 fork 了這個 repo，也可以安全地放置自己的路徑。各 config **完全獨立**：`config/upload_config.json` 永遠唔會讀 `config/convert_config.json`，剪接清單只會喺上傳時讀取。冇檔案時會用內建預設值。
 
-Cut list 同 encoder 設定放喺 `config/cuts_config.json`，詳見 2.1。
+剪接清單同 encoder 設定放喺 `config/cuts_config.json`，詳見 2.1。
 
-**檔案合併。** `combine` 決定轉檔前要唔要合併檔案。`true`（預設）會合併 VOB title set，同一個 folder 內**任何** `convert_extensions` 格式嘅檔案亦會按 natural order 合併（例如 `.avi`、`.mkv` 或 `.m2ts` 分段）；`false` 每個來源檔各自一個轉檔 job 同 upload。合併後嘅一組默認叫 `<folder> [combined]`，並會產生一個 golden MP4、一個 upload；用 `false` 時每個來源檔保留自己嘅 filename 做 title，各自有 golden MP4 同 upload。唔喺 `convert_extensions` 嘅格式會直接上傳，唔會合併。
+**檔案合併。** `combine` 決定轉檔前要唔要合併檔案。`true`（預設）會合併 VOB title set，同一個 folder 內**任何** `convert_extensions` 格式嘅檔案亦會按 natural order 合併（例如 `.avi`、`.mkv` 或 `.m2ts` 分段）；`false` 每個來源檔各自一個轉檔 job 同 upload。合併後嘅一組默認叫 `<folder> [combined]`，並會產生一個 golden MP4、一個 upload；用 `false` 時每個來源檔保留自己嘅 filename 做 title，各自有 golden MP4 同 upload。唔喺 `convert_extensions` 嘅格式會直接上傳，唔會合併。`combined_name_source` 控制合併後嘅標題：`folder`（預設）用所在資料夾名、`root` 用 `root_folder` 名、`prefix` 用同一個資料夾內所有影片檔名嘅共同 prefix（例如 `Event-100-00.AVI` + `Event-100-01.AVI` → `Event-100 [combined]`）。
 
-**轉檔來源與 golden source。** 轉檔後嘅檔案一定會成為 *golden source*：之後嘅 run 會由佢剪、上傳，唔再重新讀取原始檔案。有 cut 先會 re-encode。`remove_original_after_conversion` 係唯一會喺轉檔階段移除原始檔案嘅設定——`remove_local_after_upload` 永遠唔會刪除 golden 檔案。Golden job 用 recorded title 做 `config/cuts_config.json` key，所以 `cuts_config.json` 照樣有效。如果兩個來源會寫出同一個 golden 檔案，程式會直接報錯，唔會覆蓋。
+**轉檔來源與 golden source。** 轉檔後嘅檔案一定會成為 *golden source*：之後嘅 run 會由佢剪、上傳，唔再重新讀取原始檔案。有剪接先會 re-encode。`remove_original_after_conversion` 係唯一會喺轉檔階段移除原始檔案嘅設定——`remove_local_after_upload` 永遠唔會刪除 golden 檔案。Golden job 用 recorded title 做 `config/cuts_config.json` key，所以 `cuts_config.json` 照樣有效。如果兩個來源會寫出同一個 golden 檔案，程式會直接報錯，唔會覆蓋。
 
 ### 3.2 執行
 
@@ -276,7 +278,7 @@ python3 batch_upload.py
 1. 按 `video_extensions`（預設 `[".mp4"]`，即 golden 輸出）掃描 `root_folder`，列出上傳項目數量
 2. 開啟瀏覽器進行 OAuth 授權（第一次才需要）
 3. 找到或建立播放清單
-4. 將檔案剪輯後上傳
+4. 將檔案剪接後上傳
 5. 上傳完成後加入播放清單
 
 想先轉檔，行 `python3 convert_only.py`（見 3.3）。想一句 command 做晒：
@@ -295,7 +297,7 @@ python3 convert_and_upload.py
 python3 convert_only.py
 ```
 
-呢條路徑**永遠唔會**進行 YouTube 授權、亦唔會上傳。只需要 `config/convert_config.json`，唔需要 `config/upload_config.json`。轉檔記錄會寫入 `state/convert_state.json`（同 `state/upload_state.json` 分開）。佢會將所有 `convert_extensions` 入面嘅 job 轉檔，跟隨 `remove_original_after_conversion` / `remove_original_permanent` 決定要唔要移走原檔，跳過已經有 golden source 嘅檔案（`remove_original_after_conversion` 開啟時會順便清走呢啲 job 嘅原檔），最後印出成功／跳過／失敗數量。Cuts 喺呢個模式會被忽略；golden source 一定係完整未剪版本。
+呢條路徑**永遠唔會**進行 YouTube 授權、亦唔會上傳。只需要 `config/convert_config.json`，唔需要 `config/upload_config.json`。轉檔記錄會寫入 `state/convert_state.json`（同 `state/upload_state.json` 分開）。佢會將所有 `convert_extensions` 入面嘅 job 轉檔，跟隨 `remove_original_after_conversion` / `remove_original_permanent` 決定要唔要移走原檔，跳過已經有 golden source 嘅檔案（`remove_original_after_conversion` 開啟時會順便清走呢啲 job 嘅原檔），最後印出成功／跳過／失敗數量。剪接喺呢個模式會被忽略；golden source 一定係完整未剪版本。
 
 ### 3.4 關於「草稿」與發佈
 
@@ -433,9 +435,9 @@ AVI 是 YouTube 官方支援的格式，但 AVI 內含的某些編碼未必支�
 
 ### VOB 轉檔很慢或佔用大量磁碟空間
 
-合併與重新編碼 DVD 影片相當耗用 CPU。轉檔後嘅 MP4 會保留喺來源旁邊做 golden source；cut re-encode 會暫存喺 `.converted/` 直到上傳成功，請預留大約等於來源總大小的可用空間。
+合併與重新編碼 DVD 影片相當耗用 CPU。轉檔後嘅 MP4 會保留喺來源旁邊做 golden source；剪接 re-encode 會暫存喺 `.converted/` 直到上傳成功，請預留大約等於來源總大小的可用空間。
 
-### Cut re-encode 好慢
+### 剪接 re-encode 好慢
 
 喺 `config/cuts_config.json` 用 macOS 硬體 encoder：
 
@@ -485,7 +487,7 @@ youtube_batch_uploader/
 │   ├── golden.py         # Golden source 偵測與共存規則
 │   ├── pipeline.py       # 來源準備與媒體選擇
 │   ├── config.py         # config 載入與檔案路徑
-│   ├── cuts.py           # cut-list 解析、批次對應與 description
+│   ├── cuts.py           # 剪接清單解析、批次對應與 description
 │   ├── state.py          # upload／convert state 進度記錄
 │   ├── files.py          # 掃描、合併與本機檔案清理
 │   ├── ffmpeg.py         # 探測、轉檔與 cache
@@ -494,10 +496,10 @@ youtube_batch_uploader/
 ├── config/               # 設定（範例可 commit；本機設定不會 commit）
 │   ├── convert_config.example.json # 轉檔設定範例
 │   ├── upload_config.example.json  # 上傳設定範例
-│   ├── cuts_config.example.json    # cut-list 範例
+│   ├── cuts_config.example.json    # 剪接清單範例
 │   ├── convert_config.json         # 你的本機轉檔設定
 │   ├── upload_config.json          # 你的本機上傳設定
-│   └── cuts_config.json            # 你的本機 cut-list
+│   └── cuts_config.json            # 你的本機剪接清單
 ├── client_secrets.json   # OAuth 憑證（自行下載，請勿分享）
 ├── token.pickle          # 登入 token（首次執行後產生，請勿分享）
 ├── .converted/           # ffmpeg 轉檔暫存（可安全刪除）
