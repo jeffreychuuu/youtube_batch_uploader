@@ -28,3 +28,6 @@ venv/
 
 # ===== Claude Code session 資料 =====
 .claude/
+
+# ===== graphify 生成嘅圖表同 binary 產物 =====
+graphify-out/
