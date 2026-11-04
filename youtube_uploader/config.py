@@ -33,6 +33,12 @@ DEFAULT_CONFIG = {
     "remove_local_after_upload": False,
     # Removal method: false = move to Trash (recoverable), true = delete permanently (irreversible)
     "remove_local_permanent": False,
+    # Persist the converted MP4 next to the source and reuse it as the source of record
+    "export_converted_source": False,
+    # Remove the original files after a verified conversion
+    "remove_original_after_conversion": False,
+    # Conversion-time removal method: false = move to Trash, true = delete permanently
+    "remove_original_permanent": False,
 }
 
 
@@ -76,8 +82,23 @@ def load_config(config_file=CONFIG_FILE):
     for key in ("chunk_size_mb", "max_retries"):
         if isinstance(config[key], bool) or not isinstance(config[key], int):
             sys.exit(f"[錯誤] {key} 必須係整數。")
-    for key in ("remove_local_after_upload", "remove_local_permanent"):
+    for key in (
+        "remove_local_after_upload",
+        "remove_local_permanent",
+        "export_converted_source",
+        "remove_original_after_conversion",
+        "remove_original_permanent",
+    ):
         if not isinstance(config[key], bool):
             sys.exit(f"[錯誤] {key} 必須係 true 或 false。")
+
+    if (
+        config["remove_original_after_conversion"]
+        and not config["export_converted_source"]
+    ):
+        sys.exit(
+            "[錯誤] remove_original_after_conversion 需要 "
+            "export_converted_source 同時設為 true。"
+        )
 
     return config
