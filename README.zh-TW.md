@@ -384,7 +384,16 @@ Script 會自動重試；如果仍然失敗，再執行一次就會從斷點續�
 
 ```text
 youtube_batch_uploader/
-├── batch_upload.py       # 主程式
+├── batch_upload.py       # 入口（python3 batch_upload.py）
+├── youtube_uploader/     # 實作 package
+│   ├── cli.py            # 上傳流程與流程控制
+│   ├── config.py         # config.json 載入與檔案路徑
+│   ├── cuts.py           # cuts.json 解析與 part offset
+│   ├── state.py          # upload_state.json 進度記錄
+│   ├── files.py          # 掃描、VOB 分組與本機檔案清理
+│   ├── ffmpeg.py         # 探測、轉檔、分段與 cache
+│   └── youtube_api.py    # OAuth、播放清單與續傳上傳
+├── tests/                # 單元測試（python3 -m unittest）
 ├── config.example.json   # 設定範例（可 commit）
 ├── config.json           # 你的本機設定（不會被 commit）
 ├── client_secrets.json   # OAuth 憑證（自行下載，請勿分享）
@@ -395,6 +404,12 @@ youtube_batch_uploader/
 ├── .converted/           # ffmpeg 轉檔暫存（自動產生，可安全刪除）
 ├── README.md             # 英文說明文件
 └── README.zh-TW.md       # 繁體中文說明文件
+```
+
+執行單元測試：
+
+```bash
+python3 -m unittest
 ```
 
 ---

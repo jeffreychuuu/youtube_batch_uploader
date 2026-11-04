@@ -383,7 +383,16 @@ Warnings such as Python 3.9 being past end-of-life or urllib3 using LibreSSL do 
 
 ```text
 youtube_batch_uploader/
-├── batch_upload.py       # Main script
+├── batch_upload.py       # Entry point (python3 batch_upload.py)
+├── youtube_uploader/     # Implementation package
+│   ├── cli.py            # Upload flow and job orchestration
+│   ├── config.py         # config.json loading and file paths
+│   ├── cuts.py           # cuts.json parsing and part offsets
+│   ├── state.py          # upload_state.json tracking
+│   ├── files.py          # Scanning, VOB grouping and local cleanup
+│   ├── ffmpeg.py         # Probing, conversion, splitting and cache
+│   └── youtube_api.py    # OAuth, playlists and resumable uploads
+├── tests/                # Unit tests (python3 -m unittest)
 ├── config.example.json   # Example configuration (committed)
 ├── config.json           # Your local configuration (not committed)
 ├── client_secrets.json   # OAuth credentials (download yourself, never share)
@@ -394,6 +403,12 @@ youtube_batch_uploader/
 ├── .converted/           # Temporary MP4 conversions (created automatically, safe to delete)
 ├── README.md             # English documentation
 └── README.zh-TW.md       # Traditional Chinese documentation
+```
+
+Run the unit tests with:
+
+```bash
+python3 -m unittest
 ```
 
 ---

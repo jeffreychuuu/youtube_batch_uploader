@@ -1,0 +1,83 @@
+"""Filesystem paths and config.json loading."""
+import json
+import sys
+from pathlib import Path
+
+# The package lives in a subfolder of the project directory, so keep user files
+# (config, credentials, state) next to the batch_upload.py entry point.
+BASE_DIR = Path(__file__).resolve().parent.parent
+CLIENT_SECRETS_FILE = BASE_DIR / 'client_secrets.json'
+TOKEN_PICKLE_FILE = BASE_DIR / 'token.pickle'
+STATE_FILE = BASE_DIR / 'upload_state.json'
+CONFIG_FILE = BASE_DIR / 'config.json'
+CUTS_FILE = BASE_DIR / 'cuts.json'
+# Cache for MP4 conversions; safe to delete between runs
+CONVERTED_DIR = BASE_DIR / '.converted'
+
+# ==================== Default settings ====================
+# Real settings go in config.json in the same directory (copy config.example.json and edit it)
+DEFAULT_CONFIG = {
+    "root_folder": "/path/to/your/videos",
+    "playlist_name": "My Playlist",
+    "privacy_status": "unlisted",
+    "made_for_kids": False,
+    "video_extensions": [".mp4", ".mov", ".mkv", ".avi", ".m4v", ".vob"],
+    # Extensions converted to MP4 with ffmpeg before upload (VOB needs this;
+    # add e.g. ".avi" here if you want every AVI transcoded for compatibility)
+    "convert_extensions": [".vob"],
+    # Split long videos into parts of this many hours (0 = never split)
+    "part_duration_hours": 1,
+    "chunk_size_mb": 32,
+    "max_retries": 5,
+    # Whether to remove local video files after a successful upload
+    "remove_local_after_upload": False,
+    # Removal method: false = move to Trash (recoverable), true = delete permanently (irreversible)
+    "remove_local_permanent": False,
+}
+
+
+def load_config(config_file=CONFIG_FILE):
+    """Load config.json and merge it with the defaults; use defaults if config.json is missing"""
+    config = dict(DEFAULT_CONFIG)
+    if not config_file.exists():
+        return config
+
+    try:
+        with open(config_file, 'r', encoding='utf-8') as f:
+            user_config = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        sys.exit(f"[錯誤] 無法讀取 {config_file.name}：{e}")
+
+    if not isinstance(user_config, dict):
+        sys.exit(f"[錯誤] {config_file.name} 格式錯誤，最外層必須係 JSON object。")
+
+    unknown = sorted(set(user_config) - set(DEFAULT_CONFIG))
+    if unknown:
+        print(f"[警告] {config_file.name} 有未知設定項目，已忽略：{', '.join(unknown)}")
+
+    config.update({k: v for k, v in user_config.items() if k in DEFAULT_CONFIG})
+
+    if config["privacy_status"] not in ("public", "unlisted", "private"):
+        sys.exit("[錯誤] privacy_status 只可以係 'public'、'unlisted' 或 'private'。")
+    if not isinstance(config["video_extensions"], list):
+        sys.exit("[錯誤] video_extensions 必須係 JSON 陣列，例如 [\".mp4\", \".mov\"]。")
+    if not isinstance(config["convert_extensions"], list):
+        sys.exit("[錯誤] convert_extensions 必須係 JSON 陣列，例如 [\".vob\"]。")
+    if any(
+        not isinstance(ext, str) or not ext.startswith('.')
+        for ext in config["convert_extensions"]
+    ):
+        sys.exit("[錯誤] convert_extensions 每項都必須係以 '.' 開頭的字串，例如 \".vob\"。")
+    part_hours = config["part_duration_hours"]
+    if isinstance(part_hours, bool) or not isinstance(part_hours, (int, float)):
+        sys.exit("[錯誤] part_duration_hours 必須係數字（例如 1 表示每 1 小時一段）。")
+    if not 0 <= part_hours <= 12:
+        sys.exit("[錯誤] part_duration_hours 必須介乎 0 至 12（0 = 不分割）。")
+    for key in ("chunk_size_mb", "max_retries"):
+        if isinstance(config[key], bool) or not isinstance(config[key], int):
+            sys.exit(f"[錯誤] {key} 必須係整數。")
+    for key in ("remove_local_after_upload", "remove_local_permanent"):
+        if not isinstance(config[key], bool):
+            sys.exit(f"[錯誤] {key} 必須係 true 或 false。")
+
+    return config
