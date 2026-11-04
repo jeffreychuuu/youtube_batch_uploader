@@ -32,6 +32,8 @@ DEFAULT_CONVERT_CONFIG = {
     "combine": True,
     # Combined title source: "folder", "root" or "prefix"
     "combined_name_source": "folder",
+    # Empty = next to the source; otherwise preserve the source folder structure here
+    "output_folder": "",
     # Encoder for golden conversion: "libx264" or "h264_videotoolbox" (macOS hardware)
     "convert_encoder": "libx264",
     # Quality value: CRF for libx264 (0-51), q:v for h264_videotoolbox (0-100)
@@ -105,6 +107,8 @@ def _validate_convert(config):
             "[錯誤] combined_name_source 只可以係 "
             "'folder'、'root' 或 'prefix'。"
         )
+    if not isinstance(config["output_folder"], str):
+        sys.exit("[錯誤] output_folder 必須係字串。")
     if config["convert_encoder"] not in ("libx264", "h264_videotoolbox"):
         sys.exit(
             "[錯誤] convert_encoder 只可以係 'libx264' 或 'h264_videotoolbox'。"

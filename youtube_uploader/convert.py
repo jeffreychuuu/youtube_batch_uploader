@@ -1,5 +1,7 @@
 """Convert source videos to golden MP4s without uploading."""
-from .files import build_upload_jobs, scan_video_files
+from .files import (
+    build_upload_jobs, converted_output_path, scan_video_files,
+)
 from .golden import (
     ensure_unique_converted_targets, mark_golden_jobs,
     skip_converted_source_jobs,
@@ -24,6 +26,16 @@ def run_convert_only(config):
     if not jobs:
         print(f"[提示] 在 {config['root_folder']} 內找不到相容的影片檔案。")
         return {"converted": 0, "skipped": 0, "failed": 0}
+
+    output_folder = config.get("output_folder")
+    if output_folder:
+        for job in jobs:
+            if job.get("convert"):
+                job["output_path"] = str(
+                    converted_output_path(
+                        job, output_folder, config["root_folder"]
+                    )
+                )
     ensure_unique_converted_targets(jobs)
 
     state = load_convert_state()

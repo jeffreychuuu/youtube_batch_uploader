@@ -210,6 +210,7 @@ cp config/cuts_config.example.json config/cuts_config.json
   "convert_extensions": [".vob"],
   "combine": true,
   "combined_name_source": "folder",
+  "output_folder": "",
   "convert_encoder": "libx264",
   "convert_quality": 20,
   "remove_original_after_conversion": false,
@@ -223,6 +224,7 @@ cp config/cuts_config.example.json config/cuts_config.json
 | `convert_extensions` | 先用 ffmpeg 轉成 MP4 的副檔名（預設 `[".vob"]`）；加入 `".avi"` 可強制 AVI 轉檔。Convert script 只會掃描呢啲副檔名 |
 | `combine` | `true`（預設）會合併 VOB title set，同一個 folder 內**任何** `convert_extensions` 格式嘅檔案亦會按 natural order 合併；`false` 每條片獨立 job |
 | `combined_name_source` | 合併 job 嘅命名來源：`folder`（預設，用所在資料夾名）、`root`（用 `root_folder` 名）或 `prefix`（同一個資料夾內所有影片檔名嘅共同 prefix；VOB 會 fallback 用資料夾名） |
+| `output_folder` | 留空（預設）會將 golden MP4 放喺來源旁邊。設定資料夾就會將 golden 放去該處，並保留來源喺 `root_folder` 下嘅相對路徑；記得將 `upload_config.root_folder` 指去呢個 folder 以便上傳 |
 | `convert_encoder` | Golden 轉檔用嘅 encoder：`libx264`（預設，壓縮效率最好）或 `h264_videotoolbox`（macOS 硬體，快但效率較低） |
 | `convert_quality` | `libx264` 用 CRF `0`–`51`（越低畫質越好、檔案越大）；`h264_videotoolbox` 用 `q:v` `0`–`100`（越高畫質越好、檔案越大） |
 | `remove_original_after_conversion` | `true` = 轉檔後 MP4 驗證成功就移除原始檔案；之後再行 convert 亦會清走已轉檔 job 嘅原檔 |
@@ -262,7 +264,7 @@ cp config/cuts_config.example.json config/cuts_config.json
 
 **檔案合併。** `combine` 決定轉檔前要唔要合併檔案。`true`（預設）會合併 VOB title set，同一個 folder 內**任何** `convert_extensions` 格式嘅檔案亦會按 natural order 合併（例如 `.avi`、`.mkv` 或 `.m2ts` 分段）；`false` 每個來源檔各自一個轉檔 job 同 upload。合併後嘅一組默認叫 `<folder> [combined]`，並會產生一個 golden MP4、一個 upload；用 `false` 時每個來源檔保留自己嘅 filename 做 title，各自有 golden MP4 同 upload。唔喺 `convert_extensions` 嘅格式會直接上傳，唔會合併。`combined_name_source` 控制合併後嘅標題：`folder`（預設）用所在資料夾名、`root` 用 `root_folder` 名、`prefix` 用同一個資料夾內所有影片檔名嘅共同 prefix（例如 `Event-100-00.AVI` + `Event-100-01.AVI` → `Event-100 [combined]`）。
 
-**轉檔來源與 golden source。** 轉檔後嘅檔案一定會成為 *golden source*：之後嘅 run 會由佢剪、上傳，唔再重新讀取原始檔案。有剪接先會 re-encode。`remove_original_after_conversion` 係唯一會喺轉檔階段移除原始檔案嘅設定——`remove_local_after_upload` 永遠唔會刪除 golden 檔案。Golden job 用 recorded title 做 `config/cuts_config.json` key，所以 `cuts_config.json` 照樣有效。如果兩個來源會寫出同一個 golden 檔案，程式會直接報錯，唔會覆蓋。
+**轉檔來源與 golden source。** 轉檔後嘅檔案一定會成為 *golden source*：之後嘅 run 會由佢剪、上傳，唔再重新讀取原始檔案。如果設定咗 `output_folder`，golden 會寫去該處並保留相同嘅相對子資料夾；記得將 `upload_config.root_folder` 指去該 folder（或上一層），`batch_upload.py` 才搵到。有剪接先會 re-encode。`remove_original_after_conversion` 係唯一會喺轉檔階段移除原始檔案嘅設定——`remove_local_after_upload` 永遠唔會刪除 golden 檔案。Golden job 用 recorded title 做 `config/cuts_config.json` key，所以 `cuts_config.json` 照樣有效。如果兩個來源會寫出同一個 golden 檔案，程式會直接報錯，唔會覆蓋。
 
 ### 3.2 執行
 

@@ -16,6 +16,26 @@ BASE_CONFIG = {
 
 
 class ConvertOnlyTests(unittest.TestCase):
+    @patch('youtube_uploader.convert.save_convert_state')
+    @patch('youtube_uploader.convert.prepare_source')
+    @patch('youtube_uploader.convert.load_convert_state', return_value={})
+    def test_sets_output_path_from_config(self, load_state, prepare, save):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / 'Folder'
+            folder.mkdir()
+            (folder / 'clip.AVI').touch()
+            run_convert_only(dict(
+                BASE_CONFIG,
+                root_folder=tmp,
+                convert_extensions=['.avi'],
+                output_folder=str(Path(tmp) / 'out'),
+            ))
+            job = prepare.call_args.args[0]
+        self.assertEqual(
+            job['output_path'],
+            str(Path(tmp) / 'out' / 'Folder' / 'clip.mp4'),
+        )
+
     @patch('youtube_uploader.convert.build_upload_jobs', return_value=[])
     @patch('youtube_uploader.convert.scan_video_files', return_value=[])
     def test_passes_combined_name_source(self, scan, build):

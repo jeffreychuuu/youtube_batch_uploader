@@ -3,7 +3,8 @@ import unittest
 from pathlib import Path
 
 from youtube_uploader.files import (
-    build_upload_jobs, converted_source_path, natural_sort_key,
+    build_upload_jobs, converted_output_path, converted_source_path,
+    natural_sort_key,
 )
 
 
@@ -229,6 +230,31 @@ class ConvertedSourcePathTests(unittest.TestCase):
             'files': [Path('/v/1995/VTS_01_1.VOB'), Path('/v/1995/VTS_01_2.VOB')],
         }
         self.assertEqual(converted_source_path(job), Path('/v/1995/Family.mp4'))
+
+    def test_output_folder_preserves_relative_structure(self):
+        job = {'title': 'Clip', 'files': [Path('/v/A/B/clip.AVI')]}
+        self.assertEqual(
+            converted_output_path(job, '/out', '/v'),
+            Path('/out/A/B/Clip.mp4'),
+        )
+
+    def test_output_folder_skips_video_ts_level(self):
+        job = {
+            'title': 'Family',
+            'files': [Path('/v/A/VIDEO_TS/VTS_01_1.VOB')],
+        }
+        self.assertEqual(
+            converted_output_path(job, '/out', '/v'),
+            Path('/out/A/Family.mp4'),
+        )
+
+    def test_output_path_overrides_source_folder(self):
+        job = {
+            'title': 'Clip',
+            'files': [Path('/v/Clip.AVI')],
+            'output_path': '/out/Clip.mp4',
+        }
+        self.assertEqual(converted_source_path(job), Path('/out/Clip.mp4'))
 
     def test_video_ts_uses_parent_folder(self):
         job = {'title': 'Family', 'files': [Path('/v/1995/VIDEO_TS/VTS_01_1.VOB')]}

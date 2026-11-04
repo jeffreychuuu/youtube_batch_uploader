@@ -56,8 +56,26 @@ def combined_name_base(folder, files, root_folder, name_source,
     return folder_display_name(folder)
 
 
+def converted_output_path(job, output_folder, root_folder):
+    """Golden path under output_folder, preserving the source folder structure"""
+    folder = job["files"][0].parent
+    if folder.name.upper() == 'VIDEO_TS' and folder.parent != folder:
+        folder = folder.parent
+    try:
+        relative = folder.relative_to(Path(root_folder).expanduser())
+    except ValueError:
+        relative = Path()
+    return (
+        Path(output_folder).expanduser()
+        / relative
+        / f"{job['title']}.mp4"
+    )
+
+
 def converted_source_path(job):
-    """Path of the converted MP4, next to the source (or the VIDEO_TS parent)"""
+    """Path of the converted MP4; job['output_path'] wins when set"""
+    if job.get("output_path"):
+        return Path(job["output_path"])
     folder = job["files"][0].parent
     if folder.name.upper() == 'VIDEO_TS' and folder.parent != folder:
         folder = folder.parent
