@@ -61,71 +61,10 @@ def parse_cut_ranges(items, key):
     return normalise_cuts(ranges)
 
 
-_NAMESPACES = ("folders", "files")
-
-
-def _empty_cuts():
-    return {"folders": {}, "files": {}, "legacy": {}}
-
-
-def _parse_cut_spec(spec, label):
-    """Parse one namespaced entry: {"original": [...]} or {"parts": {"N": [...]}}"""
-    if not isinstance(spec, dict):
-        sys.exit(
-            f"[錯誤] {CUTS_FILE.name} 內 \"{label}\" 必須係 object，"
-            '例如 {"original": ["1:00-2:00"]} 或 {"parts": {"2": ["0:10-0:20"]}}。'
-        )
-    unknown = sorted(set(spec) - {"original", "parts"})
-    if unknown:
-        sys.exit(
-            f"[錯誤] {CUTS_FILE.name} 內 \"{label}\" 有未知欄位：{', '.join(unknown)}。"
-        )
-
-    has_original = "original" in spec
-    has_parts = "parts" in spec
-    if has_original == has_parts:
-        sys.exit(
-            f"[錯誤] {CUTS_FILE.name} 內 \"{label}\" 必須且只能填 "
-            "original 或 parts 其中一個。"
-        )
-
-    if has_original:
-        return {"original": parse_cut_ranges(spec["original"], f"{label}.original")}
-
-    parts_raw = spec["parts"]
-    if not isinstance(parts_raw, dict):
-        sys.exit(f"[錯誤] {CUTS_FILE.name} 內 \"{label}.parts\" 必須係 object。")
-    parts = {}
-    for number_text, items in parts_raw.items():
-        if not (
-            isinstance(number_text, str)
-            and number_text.isdigit()
-            and int(number_text) >= 1
-        ):
-            sys.exit(
-                f"[錯誤] {CUTS_FILE.name} 內 \"{label}.parts\" 嘅 key "
-                f"必須係正整數 part 號（例如 \"1\"、\"2\"）：{number_text!r}"
-            )
-        number = int(number_text)
-        if number in parts:
-            sys.exit(
-                f"[錯誤] {CUTS_FILE.name} 內 \"{label}.parts\" 有重複 part 號：{number}。"
-            )
-        parts[number] = parse_cut_ranges(items, f"{label}.parts.{number_text}")
-    if not parts:
-        sys.exit(f"[錯誤] {CUTS_FILE.name} 內 \"{label}.parts\" 唔可以係空 object。")
-    return {"parts": parts}
-
-
 def load_cuts(cuts_file=CUTS_FILE):
-    """Load cuts.json.
-
-    Supports the namespaced format (`folders` for merged VOB jobs, `files` for
-    single-file jobs) and the legacy flat format where the key is the job title,
-    the first source path, or "<title> [part N]".
-    """
+    """Load cuts.json as {title: [(start, end), ...]}"""
     if not cuts_file.exists():
-        return _empty_cuts()
+        return {}
     try:
         with open(cuts_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
@@ -134,151 +73,28 @@ def load_cuts(cuts_file=CUTS_FILE):
     if not isinstance(data, dict):
         sys.exit(f"[錯誤] {cuts_file.name} 格式錯誤，最外層必須係 JSON object。")
 
-    cuts = _empty_cuts()
-    for key, value in data.items():
-        if key in _NAMESPACES:
-            if not isinstance(value, dict):
-                sys.exit(f"[錯誤] {cuts_file.name} 內 \"{key}\" 必須係 object。")
-            for name, spec in value.items():
-                cuts[key][name] = _parse_cut_spec(spec, f"{key}.{name}")
-        else:
-            cuts["legacy"][key] = parse_cut_ranges(value, key)
+    cuts = {}
+    for key, items in data.items():
+        if isinstance(items, dict):
+            sys.exit(
+                f"[錯誤] {cuts_file.name} 內 \"{key}\" 係舊格式；"
+                "而家只支援 key → 時間範圍陣列。"
+            )
+        cuts[key] = parse_cut_ranges(items, key)
     return cuts
 
 
-def _as_cuts_structure(cuts_map):
-    """Accept the loaded structure or a legacy flat mapping (older callers/tests)"""
-    if not cuts_map:
-        return _empty_cuts()
-    if isinstance(cuts_map, dict) and any(
-        key in cuts_map for key in ("folders", "files", "legacy")
-    ):
-        return {
-            "folders": cuts_map.get("folders", {}),
-            "files": cuts_map.get("files", {}),
-            "legacy": cuts_map.get("legacy", {}),
-        }
-    return {"folders": {}, "files": {}, "legacy": dict(cuts_map)}
-
-
-def job_cut_key(job):
-    """Return (namespace, name) for this job's cuts.json lookup.
-
-    Merged jobs (more than one source file) are keyed by folder title under
-    `folders`; single-file jobs are keyed by file stem under `files`.
-    """
-    if job.get("cut_namespace"):
-        return job["cut_namespace"], job["title"]
-    if job.get("golden") or len(job["files"]) > 1:
-        return "folders", job["title"]
-    return "files", job["files"][0].stem
-
-
-def cut_entry_exists(cuts_map, namespace, name):
-    """Whether cuts.json configures this job (namespaced or legacy title key)"""
-    cuts = _as_cuts_structure(cuts_map)
-    if name in cuts[namespace]:
-        return True
-    prefix = f"{name} [part "
-    return any(
-        key == name or (key.startswith(prefix) and key.endswith(']'))
-        for key in cuts["legacy"]
-    )
-
-
-def iter_cut_entries(cuts_map):
-    """Yield (display_name, used_key) for every configured cuts.json entry"""
-    cuts = _as_cuts_structure(cuts_map)
-    for key in cuts["legacy"]:
-        yield key, key
-    for namespace in _NAMESPACES:
-        for name in cuts[namespace]:
-            yield f"{namespace}.{name}", f"{namespace}:{name}"
-
-
-def _part_offset_ranges(parts, part_duration_hours):
-    """Convert {part_number: ranges} to full-timeline ranges"""
-    segment_seconds = max(1, int(part_duration_hours * 3600) - 1)
-    ranges = []
-    for number, part_ranges in parts.items():
-        offset = (number - 1) * segment_seconds
-        ranges.extend((start + offset, end + offset) for start, end in part_ranges)
-    return ranges
-
-
-def part_cut_ranges(cuts_map, job, part_duration_hours, used_keys=None):
-    """Convert '<title> [part N]' cut entries to the full video timeline"""
-    if part_duration_hours <= 0:
-        return []
-    prefix = f"{job['title']} [part "
-    segment_seconds = max(1, int(part_duration_hours * 3600) - 1)
-    ranges = []
-    for key, part_ranges in cuts_map.items():
-        if not (key.startswith(prefix) and key.endswith(']')):
-            continue
-        number_text = key[len(prefix):-1].strip()
-        if not number_text.isdigit() or int(number_text) < 1:
-            continue
-        offset = (int(number_text) - 1) * segment_seconds
-        ranges.extend((start + offset, end + offset) for start, end in part_ranges)
-        if used_keys is not None:
-            used_keys.add(key)
-    return ranges
-
-
-def get_job_cuts(cuts_map, job, part_duration_hours, used_keys=None):
-    """Look up namespaced entries and legacy title/path/part keys for a job"""
-    cuts = _as_cuts_structure(cuts_map)
-    ranges = []
-
-    namespace, name = job_cut_key(job)
-    spec = cuts[namespace].get(name)
-    if spec is not None:
-        if "original" in spec:
-            ranges.extend(spec["original"])
-        else:
-            if part_duration_hours <= 0:
-                sys.exit(
-                    f"[錯誤] {CUTS_FILE.name} 內 \"{namespace}.{name}\" 用咗 parts，"
-                    "但 part_duration_hours 係 0（唔分割）；"
-                    "請改為 original，或設定分段長度。"
-                )
-            ranges.extend(_part_offset_ranges(spec["parts"], part_duration_hours))
-        if used_keys is not None:
-            used_keys.add(f"{namespace}:{name}")
-
-    # Legacy flat keys: title, absolute first-file path, and "<title> [part N]".
-    for key in (job["title"], str(job["files"][0].resolve())):
-        if key in cuts["legacy"]:
-            ranges.extend(cuts["legacy"][key])
-            if used_keys is not None:
-                used_keys.add(key)
-    ranges.extend(part_cut_ranges(cuts["legacy"], job, part_duration_hours, used_keys))
+def get_job_cuts(cuts_map, job, used_keys=None):
+    """Look up cut ranges for a job by its title"""
+    key = job["title"]
+    ranges = cuts_map.get(key, [])
+    if ranges and used_keys is not None:
+        used_keys.add(key)
     return normalise_cuts(ranges)
 
 
-def job_part_numbers(cuts_map, job):
-    """Part numbers configured for this job, from namespaced or legacy keys"""
-    cuts = _as_cuts_structure(cuts_map)
-    namespace, name = job_cut_key(job)
-    numbers = set()
-
-    spec = cuts[namespace].get(name)
-    if spec is not None and "parts" in spec:
-        numbers.update(spec["parts"])
-
-    prefix = f"{job['title']} [part "
-    for key in cuts["legacy"]:
-        if key.startswith(prefix) and key.endswith(']'):
-            number_text = key[len(prefix):-1].strip()
-            if number_text.isdigit() and int(number_text) >= 1:
-                numbers.add(int(number_text))
-    return numbers
-
-
-def apply_entry_settings(entry, part_hours, cuts):
-    """Store the current split/cut settings on a job entry"""
-    entry["part_duration_hours"] = part_hours
+def apply_entry_settings(entry, cuts):
+    """Store the current cut settings on a job entry"""
     entry["cuts"] = cuts_for_state(cuts)
 
 
@@ -316,5 +132,5 @@ def format_timestamp(seconds):
     hours, remainder = divmod(seconds, 3600)
     minutes, secs = divmod(remainder, 60)
     if hours:
-        return f"{hours}:{minutes:02d}:{secs:02d}"
-    return f"{minutes}:{secs:02d}"
+        return f'{hours}:{minutes:02d}:{secs:02d}'
+    return f'{minutes}:{secs:02d}'

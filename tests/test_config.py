@@ -84,14 +84,6 @@ class UploadConfigTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 load_upload_config(upload)
 
-    def test_part_duration_must_be_numeric(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            upload = _write(tmp, 'upload_config.json', {
-                'part_duration_hours': 'one',
-            })
-            with self.assertRaises(SystemExit):
-                load_upload_config(upload)
-
     def test_flags_must_be_boolean(self):
         with tempfile.TemporaryDirectory() as tmp:
             upload = _write(tmp, 'upload_config.json', {

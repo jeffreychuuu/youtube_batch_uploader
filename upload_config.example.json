@@ -1,10 +1,11 @@
 {
   "root_folder": "/path/to/your/videos",
-  "video_extensions": [".mp4"],
+  "video_extensions": [
+    ".mp4"
+  ],
   "playlist_name": "My Playlist",
   "privacy_status": "unlisted",
   "made_for_kids": false,
-  "part_duration_hours": 1,
   "chunk_size_mb": 32,
   "max_retries": 5,
   "remove_local_after_upload": false,

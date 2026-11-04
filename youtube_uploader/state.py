@@ -63,7 +63,6 @@ def migrate_completed_entry(state, old_key, golden_path):
     state["uploads"][str(golden_path.resolve())] = {
         "parts": parts,
         "cuts": old.get("cuts", []),
-        "part_duration_hours": old.get("part_duration_hours"),
         "size": size,
         "mtime": mtime,
     }

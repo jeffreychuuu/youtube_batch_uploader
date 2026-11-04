@@ -147,32 +147,6 @@ class GoldenHelperTests(unittest.TestCase):
             skipped = skip_converted_source_jobs(jobs, state)
         self.assertEqual(skipped, ['Folder.mkv'])
 
-    def test_marks_single_source_golden_as_files_namespace(self):
-        jobs = [{'title': 'Clip', 'files': [Path('/a/Clip.mp4')]}]
-        state = {
-            'golden_sources': {
-                str(Path('/a/Clip.mp4').resolve()): {
-                    'title': 'Clip',
-                    'source_files': ['/a/Clip.avi'],
-                }
-            }
-        }
-        mark_golden_jobs(jobs, state)
-        self.assertEqual(jobs[0]['cut_namespace'], 'files')
-
-    def test_marks_merged_source_golden_as_folders_namespace(self):
-        jobs = [{'title': 'Folder', 'files': [Path('/a/Folder.mp4')]}]
-        state = {
-            'golden_sources': {
-                str(Path('/a/Folder.mp4').resolve()): {
-                    'title': 'Folder',
-                    'source_files': ['/a/VTS_01_1.VOB', '/a/VTS_01_2.VOB'],
-                }
-            }
-        }
-        mark_golden_jobs(jobs, state)
-        self.assertEqual(jobs[0]['cut_namespace'], 'folders')
-
     def test_duplicate_converted_targets_stop(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp)

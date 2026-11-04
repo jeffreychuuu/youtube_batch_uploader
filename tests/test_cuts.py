@@ -6,13 +6,10 @@ from pathlib import Path
 from youtube_uploader.cuts import (
     format_timestamp,
     get_job_cuts,
-    job_cut_key,
-    job_part_numbers,
     load_cuts,
     normalise_cuts,
     parse_cut_ranges,
     parse_time,
-    part_cut_ranges,
 )
 
 
@@ -69,116 +66,6 @@ class ParseCutRangesTests(unittest.TestCase):
             parse_cut_ranges(['not a range'], 'Video')
 
 
-class PartCutTests(unittest.TestCase):
-    def setUp(self):
-        self.job = {'title': 'Video', 'files': [Path('/tmp/Video.mp4')]}
-
-    def test_part_offsets_are_added(self):
-        cuts_map = {'Video [part 2]': [(300, 360)]}
-        self.assertEqual(
-            part_cut_ranges(cuts_map, self.job, 1),
-            [(3899, 3959)],
-        )
-
-    def test_part_offsets_respect_part_length(self):
-        cuts_map = {'Video [part 2]': [(300, 360)]}
-        self.assertEqual(
-            part_cut_ranges(cuts_map, self.job, 0.25),
-            [(1199, 1259)],
-        )
-
-    def test_no_part_ranges_without_splitting(self):
-        cuts_map = {'Video [part 2]': [(300, 360)]}
-        self.assertEqual(part_cut_ranges(cuts_map, self.job, 0), [])
-
-
-class GetJobCutsTests(unittest.TestCase):
-    def test_combines_title_path_and_part_ranges(self):
-        job = {'title': 'Video', 'files': [Path('/tmp/Video.mp4')]}
-        resolved = str(Path('/tmp/Video.mp4').resolve())
-        cuts_map = {
-            'Video': [(10, 20)],
-            resolved: [(30, 40)],
-            'Video [part 2]': [(5, 6)],
-        }
-        used = set()
-        self.assertEqual(
-            get_job_cuts(cuts_map, job, 1, used),
-            [(10, 20), (30, 40), (3604, 3605)],
-        )
-        self.assertEqual(used, {'Video', resolved, 'Video [part 2]'})
-
-
-class NamespacedCutsTests(unittest.TestCase):
-    def test_folder_original_applies_to_merged_job(self):
-        job = {'title': 'Folder', 'files': [Path('/tmp/a.VOB'), Path('/tmp/b.VOB')]}
-        cuts_map = {
-            'folders': {'Folder': {'original': [(10, 20)]}},
-            'files': {},
-            'legacy': {},
-        }
-        used = set()
-        self.assertEqual(get_job_cuts(cuts_map, job, 1, used), [(10, 20)])
-        self.assertEqual(used, {'folders:Folder'})
-
-    def test_files_original_applies_to_single_file_job(self):
-        job = {'title': 'Clip', 'files': [Path('/tmp/Clip.mp4')]}
-        cuts_map = {
-            'folders': {},
-            'files': {'Clip': {'original': [(10, 20)]}},
-            'legacy': {},
-        }
-        self.assertEqual(get_job_cuts(cuts_map, job, 1), [(10, 20)])
-
-    def test_namespaces_do_not_leak_between_job_types(self):
-        job = {'title': 'Clip', 'files': [Path('/tmp/Clip.mp4')]}
-        cuts_map = {
-            'folders': {'Clip': {'original': [(10, 20)]}},
-            'files': {},
-            'legacy': {},
-        }
-        self.assertEqual(get_job_cuts(cuts_map, job, 1), [])
-
-    def test_parts_are_offset_from_the_part_start(self):
-        job = {'title': 'Clip', 'files': [Path('/tmp/Clip.mp4')]}
-        cuts_map = {
-            'folders': {},
-            'files': {'Clip': {'parts': {2: [(300, 360)]}}},
-            'legacy': {},
-        }
-        self.assertEqual(get_job_cuts(cuts_map, job, 1), [(3899, 3959)])
-        self.assertEqual(job_part_numbers(cuts_map, job), {2})
-
-    def test_parts_require_splitting(self):
-        job = {'title': 'Clip', 'files': [Path('/tmp/Clip.mp4')]}
-        cuts_map = {
-            'folders': {},
-            'files': {'Clip': {'parts': {2: [(0, 1)]}}},
-            'legacy': {},
-        }
-        with self.assertRaises(SystemExit):
-            get_job_cuts(cuts_map, job, 0)
-
-    def test_job_key_uses_namespace_by_job_shape(self):
-        merged = {'title': 'Folder', 'files': [Path('/a'), Path('/b')]}
-        single = {'title': 'Clip', 'files': [Path('/a/Clip.mp4')]}
-        self.assertEqual(job_cut_key(merged), ('folders', 'Folder'))
-        self.assertEqual(job_cut_key(single), ('files', 'Clip'))
-
-    def test_golden_single_file_uses_folders_namespace(self):
-        job = {'title': 'Folder', 'files': [Path('/a/Folder.mp4')], 'golden': True}
-        self.assertEqual(job_cut_key(job), ('folders', 'Folder'))
-
-    def test_job_cut_key_honours_cut_namespace(self):
-        job = {
-            'title': 'Clip',
-            'files': [Path('/a/Clip.mp4')],
-            'golden': True,
-            'cut_namespace': 'files',
-        }
-        self.assertEqual(job_cut_key(job), ('files', 'Clip'))
-
-
 class LoadCutsTests(unittest.TestCase):
     def _load(self, data):
         with tempfile.TemporaryDirectory() as tmp:
@@ -186,46 +73,47 @@ class LoadCutsTests(unittest.TestCase):
             path.write_text(json.dumps(data), encoding='utf-8')
             return load_cuts(path)
 
-    def test_legacy_flat_format(self):
+    def test_loads_flat_key_to_ranges(self):
         cuts = self._load({'Video': ['1:00-2:00']})
-        self.assertEqual(cuts['legacy'], {'Video': [(60, 120)]})
-        self.assertEqual(cuts['folders'], {})
-        self.assertEqual(cuts['files'], {})
+        self.assertEqual(cuts, {'Video': [(60, 120)]})
 
-    def test_namespaced_format(self):
-        cuts = self._load({
-            'folders': {'Folder': {'original': ['1:00-2:00']}},
-            'files': {'Clip': {'parts': {'2': ['0:10-0:20']}}},
-        })
-        self.assertEqual(cuts['folders']['Folder']['original'], [(60, 120)])
-        self.assertEqual(cuts['files']['Clip']['parts'], {2: [(10, 20)]})
+    def test_accepts_combined_titles(self):
+        cuts = self._load({'Folder [combined]': ['1:00-2:00']})
+        self.assertIn('Folder [combined]', cuts)
 
-    def test_rejects_original_and_parts_together(self):
+    def test_rejects_old_nested_format(self):
         with self.assertRaises(SystemExit):
             self._load({
-                'files': {
-                    'Clip': {
-                        'original': ['1:00-2:00'],
-                        'parts': {'2': ['0:10-0:20']},
-                    }
+                'folders': {
+                    'Folder': {'original': ['1:00-2:00']}
                 }
             })
 
-    def test_rejects_entry_without_section(self):
+    def test_rejects_non_list_value(self):
         with self.assertRaises(SystemExit):
-            self._load({'files': {'Clip': {}}})
+            self._load({'Video': '1:00-2:00'})
 
-    def test_rejects_unknown_section(self):
+    def test_rejects_malformed_range(self):
         with self.assertRaises(SystemExit):
-            self._load({'files': {'Clip': {'full': ['1:00-2:00']}}})
+            self._load({'Video': ['not a range']})
 
-    def test_rejects_invalid_part_number(self):
-        with self.assertRaises(SystemExit):
-            self._load({'files': {'Clip': {'parts': {'0': ['0:10-0:20']}}}})
 
-    def test_rejects_empty_parts(self):
-        with self.assertRaises(SystemExit):
-            self._load({'files': {'Clip': {'parts': {}}}})
+class GetJobCutsTests(unittest.TestCase):
+    def test_matches_title_and_marks_used(self):
+        job = {'title': 'Video', 'files': [Path('/tmp/Video.mp4')]}
+        cuts_map = {'Video': [(10, 20)]}
+        used = set()
+        self.assertEqual(get_job_cuts(cuts_map, job, used), [(10, 20)])
+        self.assertEqual(used, {'Video'})
+
+    def test_no_match_returns_empty(self):
+        job = {'title': 'Video', 'files': [Path('/tmp/Video.mp4')]}
+        self.assertEqual(get_job_cuts({'Other': [(10, 20)]}, job), [])
+
+    def test_golden_title_matches_combined_key(self):
+        job = {'title': 'Folder [combined]', 'files': [Path('/a/Folder.mp4')]}
+        cuts_map = {'Folder [combined]': [(10, 20)]}
+        self.assertEqual(get_job_cuts(cuts_map, job), [(10, 20)])
 
 
 class FormatTimestampTests(unittest.TestCase):

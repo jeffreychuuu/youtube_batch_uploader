@@ -1,17 +1,9 @@
 {
-  "folders": {
-    "Example Video Title": {
-      "original": [
-        "1:23:45-1:24:30",
-        "2:10:00-2:10:45"
-      ]
-    }
-  },
-  "files": {
-    "Example Clip": {
-      "parts": {
-        "2": ["5:00-6:00"]
-      }
-    }
-  }
+  "Example Video Title [combined]": [
+    "1:23:45-1:24:30",
+    "2:10:00-2:10:45"
+  ],
+  "Example Clip": [
+    "5:00-6:00"
+  ]
 }

@@ -1,5 +1,4 @@
-"""ffmpeg probing, conversion, splitting and conversion-cache management."""
-import hashlib
+"""ffmpeg probing, conversion and conversion-cache management."""
 import os
 import shutil
 import subprocess
@@ -12,7 +11,7 @@ from .state import source_fingerprint
 CONVERT_CRF = 20
 CONVERT_PRESET = 'medium'
 # Bump when the conversion pipeline changes so old caches are not reused
-CONVERT_VERSION = 2
+CONVERT_VERSION = 3
 
 
 def converted_cache_path(fingerprint):
@@ -20,64 +19,22 @@ def converted_cache_path(fingerprint):
     return CONVERTED_DIR / f"{fingerprint}.mp4"
 
 
-def converted_marker_path(fingerprint):
-    """Marker file written only after a conversion has completed"""
-    return CONVERTED_DIR / f"{fingerprint}.done"
-
-
-def converted_partial_dir(fingerprint):
-    """Temporary directory used while a split conversion is running"""
-    return CONVERTED_DIR / f"{fingerprint}.partial"
-
-
-def load_cached_parts(fingerprint):
-    """Return the cached part paths if a complete conversion exists, else None"""
-    marker = converted_marker_path(fingerprint)
-    try:
-        count = int(marker.read_text(encoding='utf-8').strip())
-    except (OSError, ValueError):
-        return None
-    if count < 1:
-        return None
-    if count == 1:
-        path = converted_cache_path(fingerprint)
-        return [path] if path.exists() else None
-    paths = [
-        CONVERTED_DIR / f"{fingerprint}.part{index:03d}.mp4"
-        for index in range(1, count + 1)
-    ]
-    return paths if all(path.exists() for path in paths) else None
-
-
 def remove_cache_by_fingerprint(fingerprint):
     """Delete every cached artifact belonging to one conversion fingerprint"""
     paths = [
         converted_cache_path(fingerprint),
-        converted_marker_path(fingerprint),
-        CONVERTED_DIR / f"{fingerprint}.done.tmp",
         CONVERTED_DIR / f"{fingerprint}.part.mp4",
-        CONVERTED_DIR / f"{fingerprint}.concat.txt",
     ]
-    paths.extend(CONVERTED_DIR.glob(f"{fingerprint}.part*.mp4"))
     for path in paths:
         try:
             path.unlink()
         except OSError:
             pass
-    shutil.rmtree(converted_partial_dir(fingerprint), ignore_errors=True)
 
 
-def write_cache_marker(fingerprint, count):
-    """Atomically record how many parts a completed conversion has"""
-    marker = converted_marker_path(fingerprint)
-    tmp = marker.with_name(marker.name + '.tmp')
-    tmp.write_text(str(count), encoding='utf-8')
-    os.replace(tmp, marker)
-
-
-def conversion_fingerprint(files, part_duration_hours, cuts=None):
-    """Cache key for a conversion; includes part length and (when present) cut ranges"""
-    variant = f'v{CONVERT_VERSION};part={part_duration_hours}'
+def conversion_fingerprint(files, cuts=None):
+    """Cache key for a conversion; includes cut ranges when present"""
+    variant = f'v{CONVERT_VERSION}'
     normalised = normalise_cuts(cuts or [])
     if normalised:
         variant += f';cuts={cuts_variant(normalised)}'
@@ -228,16 +185,12 @@ def build_filter_graph(files, cuts, has_audio, fps_expr, sample_rate):
     return ';'.join(graph), map_args
 
 
-def convert_to_mp4(files, part_duration_hours, cuts=None):
-    """Merge (if needed) and convert source videos to MP4 (H.264/AAC) with ffmpeg.
+def convert_to_mp4(files, cuts=None):
+    """Merge (if needed) and convert source videos to one MP4 (H.264/AAC).
 
-    Long videos are split into parts according to part_duration_hours, and any
-    ranges in `cuts` are removed before splitting. Finished parts are cached in
-    CONVERTED_DIR so an interrupted upload resumes without re-encoding; the
-    cache key covers the source files, part length and cut ranges, so changing
-    any of them produces a fresh conversion.
-
-    Returns a list of part paths (one item when no split is needed).
+    Any ranges in `cuts` are removed. The output is cached in CONVERTED_DIR so
+    an interrupted upload resumes without re-encoding; the cache key covers the
+    source files and cut ranges, so changing either produces a fresh conversion.
     """
     ffmpeg = shutil.which('ffmpeg')
     if not ffmpeg:
@@ -247,16 +200,15 @@ def convert_to_mp4(files, part_duration_hours, cuts=None):
         raise RuntimeError('找不到 ffprobe，轉檔需要 ffprobe（通常同 ffmpeg 一齊安裝）')
 
     cuts = normalise_cuts(cuts or [])
-    part_hours = part_duration_hours
     try:
-        fingerprint = conversion_fingerprint(files, part_hours, cuts=cuts)
+        fingerprint = conversion_fingerprint(files, cuts=cuts)
     except OSError as e:
         raise RuntimeError(f'無法讀取來源檔案: {e}')
 
-    cached = load_cached_parts(fingerprint)
-    if cached:
-        print(f"  [轉檔] 重用已轉換檔案: {len(cached)} 段")
-        return cached
+    target = converted_cache_path(fingerprint)
+    if target.exists() and target.stat().st_size > 0:
+        print(f"  [轉檔] 重用已轉換檔案: {target.name}")
+        return target
 
     # Remove leftovers from an interrupted previous attempt
     remove_cache_by_fingerprint(fingerprint)
@@ -284,34 +236,10 @@ def convert_to_mp4(files, part_duration_hours, cuts=None):
         print(f"  [轉檔] {source_desc} -> MP4（H.264/AAC），需時可能較長...")
         for file_path in files:
             print(f"    - {file_path.name}")
+    if len(files) == 1:
+        print(f"  [轉檔] {source_desc} -> MP4（H.264/AAC），需時可能較長...")
 
-    split = part_hours > 0
-    if split:
-        segment_seconds = max(1, int(part_hours * 3600) - 1)
-        partial_dir = converted_partial_dir(fingerprint)
-        partial_dir.mkdir(parents=True, exist_ok=True)
-        output_pattern = str(partial_dir / 'part%03d.mp4')
-        if len(files) == 1:
-            print(
-                f"  [轉檔] {source_desc} -> MP4（H.264/AAC），"
-                f"每 {part_hours:g} 小時一段，需時可能較長..."
-            )
-        output_args = [
-            '-f', 'segment',
-            '-segment_time', str(segment_seconds),
-            '-segment_start_number', '1',
-            '-reset_timestamps', '1',
-            '-force_key_frames', f'expr:gte(t,n_forced*{segment_seconds})',
-            output_pattern,
-        ]
-    else:
-        partial_dir = None
-        tmp_path = converted_cache_path(fingerprint).with_name(
-            converted_cache_path(fingerprint).name + '.part.mp4'
-        )
-        if len(files) == 1:
-            print(f"  [轉檔] {source_desc} -> MP4（H.264/AAC），需時可能較長...")
-        output_args = [str(tmp_path)]
+    tmp_path = target.with_name(target.name + '.part.mp4')
 
     filter_complex, map_args = build_filter_graph(
         files, cuts, has_audio, fps_expr, sample_rate
@@ -332,7 +260,7 @@ def convert_to_mp4(files, part_duration_hours, cuts=None):
         '-c:v', 'libx264', '-preset', CONVERT_PRESET, '-crf', str(CONVERT_CRF),
         '-pix_fmt', 'yuv420p',
         '-c:a', 'aac', '-b:a', '192k',
-        *output_args,
+        str(tmp_path),
     ]
 
     try:
@@ -344,42 +272,15 @@ def convert_to_mp4(files, part_duration_hours, cuts=None):
         remove_cache_by_fingerprint(fingerprint)
         raise RuntimeError(f'ffmpeg 轉檔失敗（exit code {result.returncode}）')
 
-    if split:
-        temp_parts = [
-            path for path in sorted(partial_dir.glob('part*.mp4'))
-            if path.stat().st_size > 0
-        ]
-        if not temp_parts:
-            remove_cache_by_fingerprint(fingerprint)
-            raise RuntimeError('ffmpeg 沒有產生任何影片分段')
-        if len(temp_parts) == 1:
-            target = converted_cache_path(fingerprint)
-            os.replace(temp_parts[0], target)
-            result_parts = [target]
-        else:
-            result_parts = []
-            for index, temp_path in enumerate(temp_parts, start=1):
-                target = CONVERTED_DIR / f"{fingerprint}.part{index:03d}.mp4"
-                os.replace(temp_path, target)
-                result_parts.append(target)
-        shutil.rmtree(partial_dir, ignore_errors=True)
-    else:
-        target = converted_cache_path(fingerprint)
-        os.replace(tmp_path, target)
-        result_parts = [target]
-
-    write_cache_marker(fingerprint, len(result_parts))
-    if len(result_parts) == 1:
-        print(f"  [轉檔] 完成: {result_parts[0].name}")
-    else:
-        print(f"  [轉檔] 完成: 共 {len(result_parts)} 段")
-    return result_parts
+    os.replace(tmp_path, target)
+    print(f"  [轉檔] 完成: {target.name}")
+    return target
 
 
-def remove_cached_conversion(files, part_duration_hours, cuts=None):
-    """Delete every cached part for these source files, part length and cut ranges"""
+def remove_cached_conversion(files, cuts=None):
+    """Delete the cached conversion for these source files and cut ranges"""
     try:
-        fingerprint = conversion_fingerprint(files, part_duration_hours, cuts)
+        fingerprint = conversion_fingerprint(files, cuts)
     except OSError:
         return
     remove_cache_by_fingerprint(fingerprint)
@@ -406,70 +307,6 @@ def verify_video(path):
     ]
     if not durations or max(durations) <= 0:
         raise RuntimeError(f"轉檔輸出無效（duration 為 0）: {path}")
-
-
-def copy_fingerprint(source, part_hours):
-    """Cache key for a stream-copy split"""
-    stat = source.stat()
-    digest = hashlib.sha1()
-    for value in (str(source.resolve()), stat.st_size, stat.st_mtime_ns, part_hours):
-        digest.update(str(value).encode('utf-8'))
-        digest.update(b'\0')
-    return digest.hexdigest()[:20]
-
-
-def copy_cache_dir(source, part_hours):
-    """Cache directory for a stream-copy split"""
-    return CONVERTED_DIR / f"copy-{copy_fingerprint(source, part_hours)}"
-
-
-def split_without_encode(source, part_hours):
-    """Split one file with stream copy; raise RuntimeError if ffmpeg cannot"""
-    if part_hours <= 0:
-        return [source]
-    ffmpeg = shutil.which('ffmpeg')
-    if not ffmpeg:
-        raise RuntimeError('找不到 ffmpeg，請先安裝')
-    segment_seconds = max(1, int(part_hours * 3600) - 1)
-    cache_dir = copy_cache_dir(source, part_hours)
-    marker = cache_dir / 'done'
-    cached = sorted(cache_dir.glob(f"part*{source.suffix}"))
-    if marker.exists() and cached:
-        return cached
-    shutil.rmtree(cache_dir, ignore_errors=True)
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    pattern = str(cache_dir / f"part%03d{source.suffix}")
-    result = subprocess.run([
-        ffmpeg, '-y', '-hide_banner', '-loglevel', 'error',
-        '-i', str(source),
-        '-map', '0:v:0', '-map', '0:a?', '-c', 'copy',
-        '-f', 'segment', '-segment_time', str(segment_seconds),
-        '-reset_timestamps', '1', '-segment_start_number', '1', pattern,
-    ])
-    parts = sorted(cache_dir.glob(f"part*{source.suffix}"))
-    if result.returncode != 0 or not parts:
-        shutil.rmtree(cache_dir, ignore_errors=True)
-        raise RuntimeError(f'stream-copy 分段失敗: {source}')
-    if len(parts) == 1:
-        ffprobe = shutil.which('ffprobe')
-        duration_text = (
-            ffprobe_value(['-i', str(source)], 'format=duration', ffprobe)
-            if ffprobe else None
-        )
-        try:
-            duration = float(duration_text)
-        except (TypeError, ValueError):
-            duration = 0
-        if duration > segment_seconds * 1.5:
-            shutil.rmtree(cache_dir, ignore_errors=True)
-            raise RuntimeError(f'keyframe 間距太大，無法用 stream-copy 分段: {source}')
-    marker.write_text(str(len(parts)), encoding='utf-8')
-    return parts
-
-
-def remove_copy_cache(source, part_hours):
-    """Delete a stream-copy split cache"""
-    shutil.rmtree(copy_cache_dir(source, part_hours), ignore_errors=True)
 
 
 def move_converted_to_source(converted, target):

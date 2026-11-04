@@ -42,8 +42,6 @@ DEFAULT_UPLOAD_CONFIG = {
     "playlist_name": "My Playlist",
     "privacy_status": "unlisted",
     "made_for_kids": False,
-    # Split long videos into parts of this many hours (0 = never split)
-    "part_duration_hours": 1,
     "chunk_size_mb": 32,
     "max_retries": 5,
     # Whether to remove local video files after a successful upload
@@ -113,11 +111,6 @@ def _validate_upload(config):
         sys.exit("[錯誤] video_extensions 每項都必須係以 '.' 開頭的字串，例如 \".mp4\"。")
     if config["privacy_status"] not in ("public", "unlisted", "private"):
         sys.exit("[錯誤] privacy_status 只可以係 'public'、'unlisted' 或 'private'。")
-    part_hours = config["part_duration_hours"]
-    if isinstance(part_hours, bool) or not isinstance(part_hours, (int, float)):
-        sys.exit("[錯誤] part_duration_hours 必須係數字（例如 1 表示每 1 小時一段）。")
-    if not 0 <= part_hours <= 12:
-        sys.exit("[錯誤] part_duration_hours 必須介乎 0 至 12（0 = 不分割）。")
     for key in ("chunk_size_mb", "max_retries"):
         if isinstance(config[key], bool) or not isinstance(config[key], int):
             sys.exit(f"[錯誤] {key} 必須係整數。")

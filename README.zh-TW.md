@@ -12,7 +12,7 @@
 
 - 遞迴掃描指定資料夾，自動上傳所有支援格式的影片
 - 支援 VOB（DVD）：同一資料夾的 `VTS_01_1.VOB`、`VTS_01_2.VOB`… 會按編號合併並用 ffmpeg 轉成 MP4，合併後的影片以資料夾名稱為標題
-- 長片會按 `part_duration_hours` 分段（預設每 1 小時一段），標題加上 `[part 1]`、`[part 2]`
+- 每條片會以單一檔案上傳（唔會分段）
 - 支援 cut-list：上傳前剪走被 YouTube flag 嘅時間範圍（`cuts.json`）
 - 支援 golden source：保留轉檔後嘅 MP4，之後再由佢剪／上傳；`convert_only.py` 可以喺毋須 YouTube 授權嘅情況下準備 golden 檔案
 - 可透過 `convert_extensions` 指定其他格式（例如 AVI）先用 ffmpeg 轉檔
@@ -106,9 +106,8 @@ Windows：由 [ffmpeg.org](https://ffmpeg.org/) 下載並加入 `PATH`。
 - 合併後的影片以資料夾名稱為標題（如果 VOB 放在 `VIDEO_TS` 內，會改用上一層資料夾名稱）
 - 略過 DVD 選單檔案（`*_0.VOB` 與 `VIDEO_TS.VOB`）
 - 單一 VOB 則沿用原本的檔名作為標題
-- 長片按 `part_duration_hours` 分段（預設每 1 小時），每段標題為 `<名稱> [part N]`
-- 分段只適用於經 ffmpeg 處理的影片（VOB，或加入 `convert_extensions` 的格式）
-- 將轉檔結果（可能有多段）暫存在 `.converted/`，上傳中斷後重跑毋須重新編碼；所有分段上傳成功後自動刪除
+- 用 ffmpeg 將來源轉成單一 MP4（H.264/AAC）
+- 將轉檔結果暫存在 `.converted/`，上傳中斷後重跑毋須重新編碼；上傳成功後自動刪除
 
 也就是說，你只需要：
 
@@ -130,26 +129,19 @@ Windows：由 [ffmpeg.org](https://ffmpeg.org/) 下載並加入 `PATH`。
 
 ```json
 {
-  "folders": {
-    "My Video": {
-      "original": [
-        "21:55-22:45",
-        "23:20-24:35",
-        "24:45-26:25"
-      ]
-    }
-  }
+  "My Video [combined]": [
+    "21:55-22:45",
+    "23:20-24:35",
+    "24:45-26:25"
+  ]
 }
 ```
 
-- `folders` 嘅 key 對應合併 VOB job（資料夾名；同一個資料夾有多個 title set 就加 `(VTS_01)` / `(VTS_02)`）。`files` 嘅 key 對應單檔 job（檔名不含副檔名）。
-- 每個 entry **必須且只能**填 `original` 或 `parts` 其中一個；兩者同時出現、或者兩者都冇，都會報錯：
-  - `original`：範圍係指 **合併後完整影片嘅 timeline**（同 YouTube 顯示嗰條 timeline 一樣），喺分段之前剪。
-  - `parts`：範圍相對於某個 part，例如 `"parts": {"2": ["5:00-6:00"]}`。Script 會用 `part_duration_hours` 自動加返該 part 嘅起始 offset，唔使你手動計完整 timeline。需要開啟分段（`part_duration_hours > 0`）。
+- Key 係影片標題：合併 group 用 `<folder> [combined]`，單檔用檔名（不含副檔名）。
+- Value 係要移除嘅時間範圍陣列，範圍係指**完整影片 timeline**（同 YouTube 顯示嗰條 timeline 一樣）。
 - 時間格式：`MM:SS` 或 `HH:MM:SS`；開始/結束用 `-`、`–`、`—`、`~` 或 `to` 分隔。
-- 舊嘅 flat 格式仍然支援：key 可以係 job 標題、第一個來源檔嘅絕對路徑、或 `"<title> [part N]"`，value 係範圍陣列。
-- JSON 唔支援 comment；`cuts.example.json` 只示範兩種合法 entry 寫法，冇任何 comment 語法。
-- 剪輯會喺 ffmpeg 轉檔時進行，之後先照常分段。
+- JSON 唔支援 comment；格式可參考 `cuts.example.json`。
+- 剪輯會喺 ffmpeg 轉檔時進行。
 - 改 cut-list 會令轉檔 cache 失效。如果條片之前已上傳、來源檔案仍然存在，script 會重新處理並上傳修正版；舊嘅 YouTube 影片唔會自動刪除。
 - 本機來源檔案嘅刪除一律跟隨 `remove_local_after_upload`，設有 cut-list 都一樣。
 - `cuts.json` 已加入 `.gitignore`；格式可參考 `cuts.example.json`。
@@ -189,7 +181,7 @@ cp upload_config.example.json upload_config.json
 | `remove_original_after_conversion` | `true` = 轉檔後 MP4 驗證成功就移除原始檔案（需要 `export_converted_source`） |
 | `remove_original_permanent` | 轉檔時清理嘅移除方式：`false` = 移至垃圾桶（預設）/ `true` = 永久刪除 |
 
-**`upload_config.json`** — 掃描、分段、發佈（完全獨立）：
+**`upload_config.json`** — 掃描、發佈（完全獨立）：
 
 ```json
 {
@@ -198,7 +190,6 @@ cp upload_config.example.json upload_config.json
   "playlist_name": "My Playlist",
   "privacy_status": "unlisted",
   "made_for_kids": false,
-  "part_duration_hours": 1,
   "chunk_size_mb": 32,
   "max_retries": 5,
   "remove_local_after_upload": false,
@@ -213,7 +204,6 @@ cp upload_config.example.json upload_config.json
 | `playlist_name` | 目標播放清單名稱；不存在會自動建立。設為 `""` 就不加入任何清單 |
 | `privacy_status` | `public`（公開）/ `unlisted`（不公開，有連結即可觀看）/ `private`（私人） |
 | `made_for_kids` | `True` = 兒童導向內容；`False` = 非兒童導向 |
-| `part_duration_hours` | 每段長度（小時），預設 `1`；`0` = 不分段。**所有 upload** 都適用，包括 MP4/MOV/AVI。未驗證帳戶可設 `0.25`（15 分鐘上限） |
 | `chunk_size_mb` | 每個上傳分塊的大小，必須為 256KB 的整數倍；大檔案建議 16–32 |
 | `max_retries` | 網絡錯誤 / 5xx 時每個分塊的最多重試次數 |
 | `remove_local_after_upload` | `true` = 上傳成功後移除本機來源；`false` = 保留（預設）。Golden 檔案永遠唔會被移除 |
@@ -221,9 +211,9 @@ cp upload_config.example.json upload_config.json
 
 兩個檔案都已加入 `.gitignore`，**不會被 commit**；即使你 fork 了這個 repo，也可以安全地放置自己的路徑。兩個 config **完全獨立**：`upload_config.json` 永遠唔會讀 `convert_config.json`。冇檔案時會用內建預設值。
 
-**檔案合併。** `combine` 決定轉檔前要唔要合併檔案。`true`（預設）會合併 VOB title set，同一個 folder 內同一個 convert extension 嘅檔案亦會按 natural order 合併（例如 `.m2ts` 分段）；`false` 每條片獨立。合併後嘅一組默認叫 `<folder> [combined]`，並會產生一個 golden MP4、一個 upload（再按 `part_duration_hours` 分段）；用 `false` 時每個來源檔保留自己嘅 filename 做 title，各自有 golden MP4 同 upload。
+**檔案合併。** `combine` 決定轉檔前要唔要合併檔案。`true`（預設）會合併 VOB title set，同一個 folder 內同一個 convert extension 嘅檔案亦會按 natural order 合併（例如 `.m2ts` 分段）；`false` 每條片獨立。合併後嘅一組默認叫 `<folder> [combined]`，並會產生一個 golden MP4、一個 upload；用 `false` 時每個來源檔保留自己嘅 filename 做 title，各自有 golden MP4 同 upload。
 
-**轉檔來源與 golden source。** 開啟 `export_converted_source` 之後，轉檔後嘅檔案會成為 *golden source*：之後嘅 run 會由佢剪、分段、上傳，唔再重新讀取原始檔案。冇 cut 嘅上傳會用 stream copy 分段（快、唔重新 encode）；有 cut 嘅上傳先會 re-encode。`remove_original_after_conversion` 係唯一會喺轉檔階段移除原始檔案嘅設定——`remove_local_after_upload` 永遠唔會刪除 golden 檔案。Golden job 會沿用來源嘅 cuts namespace（合併 VOB 用 `folders`，單檔用 `files`），所以現有 `cuts.json` key 喺轉檔後照樣有效。如果兩個來源會寫出同一個 golden 檔案，程式會直接報錯，唔會覆蓋。
+**轉檔來源與 golden source。** 開啟 `export_converted_source` 之後，轉檔後嘅檔案會成為 *golden source*：之後嘅 run 會由佢剪、上傳，唔再重新讀取原始檔案。有 cut 先會 re-encode。`remove_original_after_conversion` 係唯一會喺轉檔階段移除原始檔案嘅設定——`remove_local_after_upload` 永遠唔會刪除 golden 檔案。Golden job 用 recorded title 做 `cuts.json` key，所以 `cuts.json` 照樣有效。如果兩個來源會寫出同一個 golden 檔案，程式會直接報錯，唔會覆蓋。
 
 ### 3.2 執行
 
@@ -239,7 +229,7 @@ python3 batch_upload.py
 1. 按 `video_extensions`（預設 `[".mp4"]`，即 golden 輸出）掃描 `root_folder`，列出上傳項目數量
 2. 開啟瀏覽器進行 OAuth 授權（第一次才需要）
 3. 找到或建立播放清單
-4. 將檔案剪輯、分段，逐個 part 上傳
+4. 將檔案剪輯後上傳
 5. 上傳完成後加入播放清單
 
 想先轉檔，行 `python3 convert_only.py`（見 3.3）。想一句 command 做晒：
@@ -258,7 +248,7 @@ python3 convert_and_upload.py
 python3 convert_only.py
 ```
 
-呢條路徑**永遠唔會**進行 YouTube 授權、亦唔會上傳。只需要 `convert_config.json`，唔需要 `upload_config.json`。需要 `export_converted_source: true`。佢會將所有 `convert_extensions` 入面嘅 job 轉檔，跟隨 `remove_original_after_conversion` / `remove_original_permanent` 決定要唔要移走原檔，跳過已經有 golden source 嘅檔案，最後印出成功／跳過／失敗數量。Cuts 同 `part_duration_hours` 喺呢個模式會被忽略；golden source 一定係完整未剪版本。
+呢條路徑**永遠唔會**進行 YouTube 授權、亦唔會上傳。只需要 `convert_config.json`，唔需要 `upload_config.json`。需要 `export_converted_source: true`。佢會將所有 `convert_extensions` 入面嘅 job 轉檔，跟隨 `remove_original_after_conversion` / `remove_original_permanent` 決定要唔要移走原檔，跳過已經有 golden source 嘅檔案，最後印出成功／跳過／失敗數量。Cuts 喺呢個模式會被忽略；golden source 一定係完整未剪版本。
 
 ### 3.4 關於「草稿」與發佈
 
@@ -288,7 +278,7 @@ YouTube API **沒有「草稿」概念**，上傳完成後影片即會以 `priva
 
 - 只會在影片**上傳成功並取得 video ID** 之後才移除本機檔案
 - 如果上傳失敗，本機檔案不會被刪除
-- 合併或分段上傳的 VOB，要等所有分段都上傳成功先會移除來源檔案
+- 合併上傳的 VOB，要等上傳成功先會移除來源檔案
 - 有 cut-list 嘅影片亦一樣，會跟 `remove_local_after_upload` 清理本機檔案
 - 之前已經上傳過的影片，重跑時亦會按照此設定清理
 - 移除失敗（例如權限不足）只會顯示警告，不會中斷其他影片
@@ -313,7 +303,6 @@ Script 會在同一資料夾產生 `upload_state.json`，記錄每條影片：
     "/path/to/your/videos/My Video/VTS_01_1.VOB": {
       "size": 4596858880,
       "mtime": 1700000000.0,
-      "part_duration_hours": 1,
       "local_removed": true,
       "parts": [
         {
@@ -328,12 +317,11 @@ Script 會在同一資料夾產生 `upload_state.json`，記錄每條影片：
 }
 ```
 
-- `parts` 內每個分段有一個 entry；單段影片只有一個 entry
+- `parts` 保存已上傳影片嘅 entry（為兼容舊 state 保留）
 - 每上傳完一個分塊就會更新一次
-- 已上傳完成的分段，下次執行會直接跳過
-- 未完成的分段會保存 `resumable_uri` 與 `bytes_sent`，下次執行自動續傳
+- 已完成上傳的影片，下次執行會直接跳過
+- 未完成的上傳會保存 `resumable_uri` 與 `bytes_sent`，下次執行自動續傳
 - 如果檔案大小或修改時間改變，會當作新版本重新上傳
-- 更改 `part_duration_hours` 只會套用於新項目或未完成項目；已完成上傳的影片唔會自動重新上傳
 - 舊版本寫落嘅 state（頂層 `video_id`）會自動遷移
 
 ### 4.2 中途斷了怎麼辦？
@@ -400,11 +388,7 @@ AVI 是 YouTube 官方支援的格式，但 AVI 內含的某些編碼未必支�
 
 ### 上傳時被指影片太長
 
-未驗證的 YouTube 帳戶只可以上傳 15 分鐘以內的影片。可以前往 <https://www.youtube.com/verify> 驗證帳戶，或將 `upload_config.json` 的 `"part_duration_hours"` 設為 `0.25`，每 15 分鐘分割一段。已驗證帳戶每段最多 12 小時 / 256 GB。
-
-### 影片分成比預期更多段
-
-`part_duration_hours` 控制每段長度（預設 `1`，設 `0` 即不分段）。設定只會套用於新項目或未完成項目；已完成上傳的影片唔會自動重新上傳。如要重新處理某個項目，請喺 `upload_state.json` 刪除該 entry。
+未驗證的 YouTube 帳戶只可以上傳 15 分鐘以內的影片。請前往 <https://www.youtube.com/verify> 驗證帳戶，之後就可以上傳更長影片（已驗證帳戶每段最多 12 小時 / 256 GB）。本工具會將每條片以單一檔案上傳。
 
 ### 上傳中途斷線 / 電腦休眠
 
@@ -439,12 +423,12 @@ youtube_batch_uploader/
 │   ├── cli.py            # 上傳流程與流程控制
 │   ├── convert.py        # 只轉檔流程
 │   ├── golden.py         # Golden source 偵測與共存規則
-│   ├── pipeline.py       # 來源準備與分段選擇
+│   ├── pipeline.py       # 來源準備與媒體選擇
 │   ├── config.py         # convert／upload config 載入與檔案路徑
 │   ├── cuts.py           # cuts.json 解析與 part offset
 │   ├── state.py          # upload_state.json 進度記錄
 │   ├── files.py          # 掃描、合併與本機檔案清理
-│   ├── ffmpeg.py         # 探測、轉檔、分段與 cache
+│   ├── ffmpeg.py         # 探測、轉檔與 cache
 │   └── youtube_api.py    # OAuth、播放清單與續傳上傳
 ├── tests/                # 單元測試（python3 -m unittest）
 ├── convert_config.example.json # 轉檔設定範例（可 commit）

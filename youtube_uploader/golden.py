@@ -43,12 +43,6 @@ def mark_golden_jobs(jobs, state):
         if info:
             job["golden"] = True
             job["title"] = info.get("title", job["title"])
-            source_files = info.get("source_files")
-            job["cut_namespace"] = (
-                "files"
-                if source_files is not None and len(source_files) == 1
-                else "folders"
-            )
 
 
 def skip_converted_source_jobs(jobs, state):

@@ -34,7 +34,6 @@ class GoldenStateTests(unittest.TestCase):
                     old_key: {
                         'parts': [{'video_id': 'abc', 'playlist_added': True}],
                         'cuts': [[10, 20]],
-                        'part_duration_hours': 1,
                         'size': 1,
                         'mtime': 1.0,
                     }

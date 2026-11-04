@@ -12,7 +12,7 @@ Supports **resumable uploads**: if the connection drops, the machine shuts down,
 
 - Recursively scans a folder and uploads every supported video
 - VOB (DVD) support: multi-segment `VTS_01_1.VOB`, `VTS_01_2.VOB`, ... files are merged and transcoded to MP4 with ffmpeg; the merged video is titled after its folder
-- Long videos are split into parts (default every 1 hour) and titled `<name> [part 1]`, `<name> [part 2]`, ...
+- Each video is uploaded as a single file (no splitting)
 - Cut-list support: remove time ranges flagged by YouTube before upload (`cuts.json`)
 - Golden source support: keep the converted MP4 and reuse it for later cuts and uploads; `convert_only.py` prepares golden files without YouTube authorization
 - Optional ffmpeg transcoding for other formats (e.g. AVI) via `convert_extensions`
@@ -106,9 +106,8 @@ Supported extensions (editable in `CONFIG["video_extensions"]`):
 - Titles the merged video after its folder (using the parent folder name when the files are inside `VIDEO_TS`)
 - Skips DVD menu files (`*_0.VOB` and `VIDEO_TS.VOB`)
 - Uses the original file name as the title for a standalone VOB
-- Splits long results into parts according to `part_duration_hours` (default 1 hour); each part is titled `<name> [part N]`
-- Splitting applies to videos processed by ffmpeg (VOB, or other formats added to `convert_extensions`)
-- Caches the converted MP4 parts in `.converted/` so an interrupted upload resumes without re-encoding; the cache is removed after all parts upload successfully
+- Converts the source to a single MP4 (H.264/AAC) with ffmpeg
+- Caches the converted MP4 in `.converted/` so an interrupted upload resumes without re-encoding; the cache is removed after a successful upload
 
 In other words, you only need:
 
@@ -130,26 +129,19 @@ If YouTube flags a video and gives time ranges to remove, create `cuts.json` nex
 
 ```json
 {
-  "folders": {
-    "My Video": {
-      "original": [
-        "21:55-22:45",
-        "23:20-24:35",
-        "24:45-26:25"
-      ]
-    }
-  }
+  "My Video [combined]": [
+    "21:55-22:45",
+    "23:20-24:35",
+    "24:45-26:25"
+  ]
 }
 ```
 
-- `folders` keys match merged VOB jobs (the folder name; add `(VTS_01)` / `(VTS_02)` when one folder contains multiple title sets). `files` keys match single-file jobs (the file name without extension).
-- Each entry must contain **exactly one** of `original` or `parts`. An entry with both, or with neither, is rejected:
-  - `original`: ranges on the **full merged video timeline** (the same timeline YouTube shows), removed before splitting.
-  - `parts`: ranges relative to a specific part, e.g. `"parts": {"2": ["5:00-6:00"]}`. The script adds that part's start offset using `part_duration_hours`, so you do not need to calculate the full-timeline time. Requires splitting (`part_duration_hours > 0`).
+- The key is the video title: `<folder> [combined]` for a combined group, or the filename (without extension) for a single file.
+- The value is an array of time ranges to remove from the **full video timeline** (the same timeline YouTube shows).
 - Time formats: `MM:SS` or `HH:MM:SS`. Separate start/end with `-`, `–`, `—`, `~`, or `to`.
-- The legacy flat format is still accepted: a key that is the job title, the resolved first source path, or `"<title> [part N]"`, with an array of ranges as the value.
-- JSON does not support comments; `cuts.example.json` shows the two valid entry shapes without any comment syntax.
-- The ranges are removed during the ffmpeg conversion; the remaining video is then split normally.
+- JSON does not support comments; `cuts.example.json` shows the format.
+- The ranges are removed during the ffmpeg conversion.
 - Changing the cut list invalidates the conversion cache. If the job was already uploaded and the source files still exist, the script re-processes it and uploads a corrected version. The old YouTube video is **not** deleted automatically.
 - Local source removal follows `remove_local_after_upload` as usual, even when a cut list is set.
 - `cuts.json` is gitignored; see `cuts.example.json` for the format.
@@ -189,7 +181,7 @@ cp upload_config.example.json upload_config.json
 | `remove_original_after_conversion` | `true` = remove the original files after the converted MP4 is verified (requires `export_converted_source`) |
 | `remove_original_permanent` | Removal method for conversion-time cleanup: `false` = move to Trash (default) / `true` = delete permanently |
 
-**`upload_config.json`** — how to scan, split and publish (fully independent):
+**`upload_config.json`** — how to scan and publish (fully independent):
 
 ```json
 {
@@ -198,7 +190,6 @@ cp upload_config.example.json upload_config.json
   "playlist_name": "My Playlist",
   "privacy_status": "unlisted",
   "made_for_kids": false,
-  "part_duration_hours": 1,
   "chunk_size_mb": 32,
   "max_retries": 5,
   "remove_local_after_upload": false,
@@ -213,7 +204,6 @@ cp upload_config.example.json upload_config.json
 | `playlist_name` | Target playlist name; created automatically if it does not exist. Set to `""` to skip adding to a playlist |
 | `privacy_status` | `public` / `unlisted` (visible via link) / `private` |
 | `made_for_kids` | `True` = content made for kids; `False` = not made for kids |
-| `part_duration_hours` | Length of each part in hours (default `1`; `0` = never split). Applies to **every** upload, including MP4/MOV/AVI. Set `0.25` for unverified accounts (15-minute limit) |
 | `chunk_size_mb` | Size of each upload chunk; must be a multiple of 256 KB. 16–32 recommended for large files |
 | `max_retries` | Maximum retries per chunk on network errors / 5xx |
 | `remove_local_after_upload` | `true` = remove the local source after a successful upload; `false` = keep it (default). Golden files are never removed |
@@ -221,9 +211,9 @@ cp upload_config.example.json upload_config.json
 
 Both files are listed in `.gitignore` and **will not be committed**; you can safely use your own paths even after forking this repo. They are **fully independent**: `upload_config.json` never reads `convert_config.json`. Missing files fall back to the built-in defaults.
 
-**Combining files.** `combine` decides whether files are merged before conversion. `true` (default) merges VOB title sets and same-folder files of the same convert extension (for example `.m2ts` segments), in natural order. `false` makes every file its own upload. A combined group is named `<folder> [combined]` and produces one golden MP4 and one upload (split by `part_duration_hours`); with `false`, each source file keeps its own filename as the title and gets its own golden MP4 and upload.
+**Combining files.** `combine` decides whether files are merged before conversion. `true` (default) merges VOB title sets and same-folder files of the same convert extension (for example `.m2ts` segments), in natural order. `false` makes every file its own upload. A combined group is named `<folder> [combined]` and produces one golden MP4 and one upload; with `false`, each source file keeps its own filename as the title and gets its own golden MP4 and upload.
 
-**Converted sources and golden files.** When `export_converted_source` is enabled, a converted file becomes a *golden source*: later runs cut, split and upload from it instead of re-reading the originals. Cut-free uploads are split with stream copy (fast, no re-encode); uploads with cuts are re-encoded. `remove_original_after_conversion` is the only setting that removes the original files at conversion time — `remove_local_after_upload` never removes a golden file. A golden job keeps the cuts namespace of its source (`folders` for merged VOB jobs, `files` for single-file jobs), so existing `cuts.json` keys keep working after conversion. Two sources that would write the same golden file stop the run instead of overwriting.
+**Converted sources and golden files.** When `export_converted_source` is enabled, a converted file becomes a *golden source*: later runs cut and upload from it instead of re-reading the originals. Uploads with cuts are re-encoded; uploads without cuts use the file as-is. `remove_original_after_conversion` is the only setting that removes the original files at conversion time — `remove_local_after_upload` never removes a golden file. A golden job uses its recorded title as the `cuts.json` key, so cuts keep working after conversion. Two sources that would write the same golden file stop the run instead of overwriting.
 
 ### 3.2 Run
 
@@ -239,7 +229,7 @@ This run will:
 1. Scan `root_folder` for the extensions in `video_extensions` (default `[".mp4"]`, the golden output) and report how many upload items were found
 2. Open the browser for OAuth authorization (first run only)
 3. Find or create the playlist
-4. Cut and split the files with ffmpeg, then upload each part one by one
+4. Cut the files with ffmpeg if needed, then upload them
 5. Add each uploaded video to the playlist
 
 To convert first, run `python3 convert_only.py` (section 3.3). To do both with one command:
@@ -258,7 +248,7 @@ To prepare golden MP4s without uploading anything, run:
 python3 convert_only.py
 ```
 
-This path never authenticates with YouTube and never uploads. It reads `convert_config.json` only; `upload_config.json` is not needed. It requires `export_converted_source: true`. It converts every job whose extension is in `convert_extensions`, respects `remove_original_after_conversion` / `remove_original_permanent`, skips files that already have a golden source, and prints a converted/skipped/failed summary. Cuts and `part_duration_hours` are ignored here; the golden source is always the uncut full video.
+This path never authenticates with YouTube and never uploads. It reads `convert_config.json` only; `upload_config.json` is not needed. It requires `export_converted_source: true`. It converts every job whose extension is in `convert_extensions`, respects `remove_original_after_conversion` / `remove_original_permanent`, skips files that already have a golden source, and prints a converted/skipped/failed summary. Cuts are ignored here; the golden source is always the uncut full video.
 
 ### 3.4 "Draft" and publishing
 
@@ -288,7 +278,7 @@ Notes:
 
 - A local file is removed only after the video **uploads successfully and returns a video ID**
 - If an upload fails, the local file is not deleted
-- For a merged or split VOB upload, all source segments are removed only after every part has uploaded successfully
+- For a merged VOB upload, all source segments are removed only after the upload succeeds
 - Videos uploaded previously are also cleaned up on rerun according to this setting
 - A removal failure (e.g. insufficient permissions) only prints a warning and does not interrupt other videos
 - On macOS, the first use of trash mode (`remove_local_permanent: false`) may prompt "Terminal wants to control Finder"; allow it
@@ -312,7 +302,6 @@ The script creates `upload_state.json` in the same folder, recording each video:
     "/path/to/your/videos/My Video/VTS_01_1.VOB": {
       "size": 4596858880,
       "mtime": 1700000000.0,
-      "part_duration_hours": 1,
       "local_removed": true,
       "parts": [
         {
@@ -327,12 +316,11 @@ The script creates `upload_state.json` in the same folder, recording each video:
 }
 ```
 
-- `parts` contains one entry per uploaded part; a single-video job has one entry
+- `parts` holds the uploaded video entry (kept for backward compatibility with older state files)
 - Updated after every uploaded chunk
-- Parts that are already fully uploaded are skipped on the next run
-- Unfinished parts keep their `resumable_uri` and `bytes_sent`, and resume automatically on the next run
+- A completed video is skipped on the next run
+- An unfinished upload keeps its `resumable_uri` and `bytes_sent`, and resumes automatically on the next run
 - If the file size or modification time changes, it is treated as a new version and re-uploaded
-- Changing `part_duration_hours` applies to new or unfinished jobs; completed jobs are not re-uploaded automatically
 - State files written by older versions (with a top-level `video_id`) are migrated automatically
 
 ### 4.2 What if the upload stops midway?
@@ -399,11 +387,7 @@ Merging and re-encoding DVD video is CPU-intensive. The result is cached in `.co
 
 ### Upload is rejected because the video is too long
 
-Unverified YouTube accounts can only upload videos up to 15 minutes. Either verify your account at <https://www.youtube.com/verify>, or set `"part_duration_hours": 0.25` in `upload_config.json` to split every 15 minutes. Verified accounts can upload up to 12 hours / 256 GB per video.
-
-### Videos were split into more parts than expected
-
-`part_duration_hours` controls the part length (default `1`; set `0` to never split). The setting applies to new or unfinished jobs; completed uploads are not re-uploaded automatically. To re-process a completed job, delete its entry from `upload_state.json`.
+Unverified YouTube accounts can only upload videos up to 15 minutes. Verify your account at <https://www.youtube.com/verify> to upload longer videos (verified accounts can upload up to 12 hours / 256 GB per video). The tool uploads each video as a single file.
 
 ### Connection drops / computer sleeps during upload
 
@@ -443,7 +427,7 @@ youtube_batch_uploader/
 │   ├── cuts.py           # cuts.json parsing and part offsets
 │   ├── state.py          # upload_state.json tracking
 │   ├── files.py          # Scanning, grouping and local cleanup
-│   ├── ffmpeg.py         # Probing, conversion, splitting and cache
+│   ├── ffmpeg.py         # Probing, conversion and cache
 │   └── youtube_api.py    # OAuth, playlists and resumable uploads
 ├── tests/                # Unit tests (python3 -m unittest)
 ├── convert_config.example.json # Example convert settings (committed)
