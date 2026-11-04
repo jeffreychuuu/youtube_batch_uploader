@@ -156,7 +156,7 @@ If YouTube flags an **already-cut upload**, add another batch instead of calcula
   - batch 2 uses the timeline after batch 1 was cut (the uploaded video)
   - batch 3 uses the timeline after batches 1+2, and so on
 - Every batch is automatically translated back to the golden timeline; ffmpeg still runs **once** with the combined result.
-- A batch range that crosses a previously removed segment is rejected.
+- A batch range may span previously removed segments; it is split into the corresponding golden-timeline pieces.
 - Example: batch 1 cuts `20:00-30:00`; YouTube flags `25:00-27:00` on the uploaded video. Adding it as batch 2 makes the script map it to `35:00-37:00` on the golden timeline.
 
 **Cut encoder settings.** Two reserved top-level keys control how cut re-encodes are produced:

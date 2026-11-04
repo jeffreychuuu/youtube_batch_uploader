@@ -156,7 +156,7 @@ Windows：由 [ffmpeg.org](https://ffmpeg.org/) 下載並加入 `PATH`。
   - 第 2 批用第 1 批剪完之後嘅 timeline（即係上傳版本）
   - 第 3 批用第 1+2 批剪完之後嘅 timeline，如此類推
 - Script 會自動將每批轉返 golden timeline，最後合併成一組 cuts，**ffmpeg 只行一次**。
-- 如果某批範圍跨越之前已剪走嘅片段，會直接報錯。
+- 批次範圍可以跨越之前已剪走嘅片段；script 會自動將佢拆開，對應返 golden timeline 嘅各部分。
 - 例子：第 1 批剪 `20:00-30:00`；YouTube 喺上傳版本 flag `25:00-27:00`。將佢加做第 2 批，script 會自動對應返 golden timeline 嘅 `35:00-37:00`。
 
 **Cut encoder 設定。** Cuts config 最頂可以有兩個 reserved keys，控制 cut re-encode 點做：

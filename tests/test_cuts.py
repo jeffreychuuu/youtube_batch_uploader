@@ -102,14 +102,14 @@ class LoadCutsTests(unittest.TestCase):
         })
         self.assertEqual(cuts, {'Video': [(300, 480), (600, 1200)]})
 
-    def test_batch_range_crossing_previous_cut_is_rejected(self):
-        with self.assertRaises(SystemExit):
-            self._load({
-                'Video': [
-                    ['10:00-20:00'],
-                    ['5:00-15:00'],
-                ]
-            })
+    def test_batch_range_spanning_previous_cut_is_split(self):
+        cuts = self._load({
+            'Video': [
+                ['10:00-20:00'],
+                ['5:00-15:00'],
+            ]
+        })
+        self.assertEqual(cuts, {'Video': [(300, 1500)]})
 
     def test_rejects_mixed_flat_and_batch_values(self):
         with self.assertRaises(SystemExit):

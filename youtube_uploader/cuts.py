@@ -79,29 +79,26 @@ def _kept_segments(previous_cuts):
 
 
 def _map_uploaded_range(start, end, previous_cuts, key, batch_index):
-    """Translate a range on the uploaded timeline back to the golden timeline"""
+    """Split an uploaded range at previous cuts and map it to golden intervals"""
+    mapped = []
     for golden_start, golden_end, uploaded_start in _kept_segments(previous_cuts):
         if golden_end is None:
             uploaded_end = None
         else:
             uploaded_end = uploaded_start + (golden_end - golden_start)
-        midpoint = (start + end) / 2
-        if uploaded_start <= midpoint and (
-            uploaded_end is None or midpoint <= uploaded_end
-        ):
-            if start < uploaded_start or (
-                uploaded_end is not None and end > uploaded_end
-            ):
-                break
-            return (
-                golden_start + (start - uploaded_start),
-                golden_start + (end - uploaded_start),
-            )
-    sys.exit(
-        f"[錯誤] {CUTS_FILE.name} 內 \"{key}\" 第 {batch_index} 批範圍"
-        "跨越之前已剪走嘅片段，或者超出上傳版本範圍；"
-        "請確認時間係以上一個已上傳版本為準。"
-    )
+        piece_start = max(start, uploaded_start)
+        piece_end = end if uploaded_end is None else min(end, uploaded_end)
+        if piece_start < piece_end:
+            mapped.append((
+                golden_start + (piece_start - uploaded_start),
+                golden_start + (piece_end - uploaded_start),
+            ))
+    if not mapped:
+        sys.exit(
+            f"[錯誤] {CUTS_FILE.name} 內 \"{key}\" 第 {batch_index} 批範圍"
+            "超出上傳版本範圍。"
+        )
+    return mapped
 
 
 def parse_cut_batches(items, key):
@@ -126,10 +123,13 @@ def parse_cut_batches(items, key):
 
     resolved = []
     for batch_index, batch in enumerate(items, start=1):
-        mapped = [
-            _map_uploaded_range(start, end, resolved, key, batch_index)
-            for start, end in parse_cut_ranges(batch, key)
-        ]
+        mapped = []
+        for start, end in parse_cut_ranges(batch, key):
+            mapped.extend(
+                _map_uploaded_range(
+                    start, end, resolved, key, batch_index
+                )
+            )
         resolved = normalise_cuts(resolved + mapped)
     return resolved
 
