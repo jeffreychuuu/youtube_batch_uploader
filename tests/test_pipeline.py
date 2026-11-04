@@ -8,7 +8,7 @@ from unittest.mock import patch
 from youtube_uploader.ffmpeg import remove_cached_conversion, verify_video
 from youtube_uploader.pipeline import (
     SourcePlan, cleanup_plan_cache, media_parts_for_plan, prepare_source,
-    should_remove_sources,
+    remove_original_sources, should_remove_sources,
 )
 
 
@@ -43,9 +43,34 @@ class PrepareSourceTests(unittest.TestCase):
             })
         self.assertTrue(plan.golden)
         self.assertEqual(plan.key, str(target.resolve()))
-        convert.assert_called_once_with(sources)
+        convert.assert_called_once_with(
+            sources, encoder='libx264', quality=20,
+        )
         self.assertIn(str(target.resolve()), state)
         save.assert_called_once_with(state)
+
+    @patch('youtube_uploader.pipeline.save_convert_state')
+    @patch('youtube_uploader.pipeline.move_converted_to_source')
+    @patch('youtube_uploader.pipeline.verify_video')
+    @patch('youtube_uploader.pipeline.convert_to_mp4',
+           return_value=Path('/cache/x.mp4'))
+    @patch('youtube_uploader.pipeline.converted_source_path')
+    def test_export_passes_encoder_settings(
+        self, path_mock, convert, verify, move, save
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / 'Folder.mp4'
+            path_mock.return_value = target
+            sources = [Path(tmp) / 'VTS_01_1.VOB']
+            job = {'title': 'Folder', 'files': sources, 'convert': True}
+            prepare_source(job, {}, {
+                'convert_encoder': 'h264_videotoolbox',
+                'convert_quality': 65,
+                'remove_original_after_conversion': False,
+            })
+        convert.assert_called_once_with(
+            sources, encoder='h264_videotoolbox', quality=65,
+        )
 
     @patch('youtube_uploader.pipeline.save_convert_state')
     @patch('youtube_uploader.pipeline.verify_video')
@@ -171,7 +196,9 @@ class PrepareSourceTests(unittest.TestCase):
                 prepare_source(job, {}, {
                     'remove_original_after_conversion': False,
                 })
-        remove.assert_called_once_with(sources)
+        remove.assert_called_once_with(
+            sources, encoder='libx264', quality=20,
+        )
 
     @patch('youtube_uploader.pipeline.save_convert_state')
     @patch('youtube_uploader.pipeline.remove_local_file')
@@ -204,7 +231,9 @@ class MediaPartsTests(unittest.TestCase):
     def test_cuts_reencode(self, convert):
         plan = SourcePlan([Path('/a.mp4')], '/a.mp4', True)
         media_parts_for_plan(plan, [(1, 2)])
-        convert.assert_called_once_with(plan.files, [(1, 2)])
+        convert.assert_called_once_with(
+            plan.files, [(1, 2)], encoder=None, quality=None,
+        )
 
     @patch('youtube_uploader.pipeline.convert_to_mp4')
     def test_without_cuts_uploads_as_is(self, convert):
@@ -213,19 +242,44 @@ class MediaPartsTests(unittest.TestCase):
         self.assertEqual(parts, [Path('/a.mp4')])
         convert.assert_not_called()
 
+    @patch('youtube_uploader.pipeline.convert_to_mp4',
+           return_value=Path('/out/p1.mp4'))
+    def test_cuts_pass_encoder_settings(self, convert):
+        plan = SourcePlan([Path('/a.mp4')], '/a.mp4', True)
+        media_parts_for_plan(
+            plan, [(1, 2)], 'h264_videotoolbox', 65
+        )
+        convert.assert_called_once_with(
+            plan.files, [(1, 2)],
+            encoder='h264_videotoolbox', quality=65,
+        )
+
 
 class CleanupAndRemovalTests(unittest.TestCase):
     @patch('youtube_uploader.pipeline.remove_cached_conversion')
     def test_cuts_remove_conversion_cache(self, remove):
         plan = SourcePlan([Path('/a.mp4')], '/a.mp4', True)
         cleanup_plan_cache(plan, [(1, 2)])
-        remove.assert_called_once_with(plan.files, [(1, 2)])
+        remove.assert_called_once_with(
+            plan.files, [(1, 2)], encoder=None, quality=None,
+        )
 
     @patch('youtube_uploader.pipeline.remove_cached_conversion')
     def test_without_cuts_keeps_conversion_cache(self, remove):
         plan = SourcePlan([Path('/a.mp4')], '/a.mp4', True)
         cleanup_plan_cache(plan, [])
         remove.assert_not_called()
+
+    @patch('youtube_uploader.pipeline.remove_cached_conversion')
+    def test_cleanup_passes_encoder_settings(self, remove):
+        plan = SourcePlan([Path('/a.mp4')], '/a.mp4', True)
+        cleanup_plan_cache(
+            plan, [(1, 2)], 'h264_videotoolbox', 65
+        )
+        remove.assert_called_once_with(
+            plan.files, [(1, 2)],
+            encoder='h264_videotoolbox', quality=65,
+        )
 
     def test_should_remove_sources_never_removes_golden(self):
         plan = SourcePlan([Path('/a.mp4')], '/a.mp4', True)
@@ -238,6 +292,29 @@ class CleanupAndRemovalTests(unittest.TestCase):
         self.assertTrue(
             should_remove_sources(plan, {'remove_local_after_upload': True})
         )
+
+
+class RemoveOriginalSourcesTests(unittest.TestCase):
+    @patch('youtube_uploader.pipeline.remove_local_file',
+           side_effect=OSError('boom'))
+    def test_removal_failure_is_only_a_warning(self, remove):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / 'a.vob'
+            source.touch()
+            remove_original_sources([source], {
+                'remove_original_after_conversion': True,
+                'remove_original_permanent': False,
+            })
+        remove.assert_called_once_with(source, False)
+
+    @patch('youtube_uploader.pipeline.remove_local_file')
+    def test_missing_source_is_ignored(self, remove):
+        with tempfile.TemporaryDirectory() as tmp:
+            remove_original_sources([Path(tmp) / 'gone.vob'], {
+                'remove_original_after_conversion': True,
+                'remove_original_permanent': False,
+            })
+        remove.assert_not_called()
 
 
 class GoldenSmokeTests(unittest.TestCase):

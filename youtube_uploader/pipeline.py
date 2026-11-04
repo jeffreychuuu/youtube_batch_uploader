@@ -44,11 +44,13 @@ def prepare_source(job, state, config):
         job["golden"] = True
         return SourcePlan([target], golden_key, True)
 
-    converted = convert_to_mp4(files)
+    encoder = config.get("convert_encoder", "libx264")
+    quality = config.get("convert_quality", 20)
+    converted = convert_to_mp4(files, encoder=encoder, quality=quality)
     try:
         verify_video(converted)
     except Exception:
-        remove_cached_conversion(files)
+        remove_cached_conversion(files, encoder=encoder, quality=quality)
         raise
     move_converted_to_source(converted, target)
     verify_video(target)
@@ -67,21 +69,33 @@ def remove_original_sources(files, config):
     if not config["remove_original_after_conversion"]:
         return
     for source_file in files:
-        if source_file.exists():
-            remove_local_file(source_file, config["remove_original_permanent"])
+        if not source_file.exists():
+            continue
+        try:
+            remove_local_file(
+                source_file, config["remove_original_permanent"]
+            )
+        except Exception as error:
+            print(
+                f"  [警告] 無法移除原檔 {source_file.name}: {error}"
+            )
 
 
-def media_parts_for_plan(plan, cuts):
+def media_parts_for_plan(plan, cuts, encoder=None, quality=None):
     """Return the media files to upload for a prepared plan"""
     if cuts:
-        return [convert_to_mp4(plan.files, cuts)]
+        return [convert_to_mp4(
+            plan.files, cuts, encoder=encoder, quality=quality
+        )]
     return plan.files
 
 
-def cleanup_plan_cache(plan, cuts):
+def cleanup_plan_cache(plan, cuts, encoder=None, quality=None):
     """Remove the conversion cache after a successful upload"""
     if cuts:
-        remove_cached_conversion(plan.files, cuts)
+        remove_cached_conversion(
+            plan.files, cuts, encoder=encoder, quality=quality
+        )
 
 
 def should_remove_sources(plan, config):

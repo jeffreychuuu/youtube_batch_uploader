@@ -22,6 +22,26 @@ class ConvertConfigTests(unittest.TestCase):
         self.assertFalse(config['remove_original_permanent'])
         self.assertTrue(config['combine'])
 
+    def test_encoder_defaults(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = load_convert_config(_write(tmp, 'convert_config.json', {}))
+        self.assertEqual(config['convert_encoder'], 'libx264')
+        self.assertEqual(config['convert_quality'], 20)
+
+    def test_rejects_unknown_convert_encoder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(SystemExit):
+                load_convert_config(_write(tmp, 'convert_config.json', {
+                    'convert_encoder': 'libx265',
+                }))
+
+    def test_rejects_invalid_convert_quality(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(SystemExit):
+                load_convert_config(_write(tmp, 'convert_config.json', {
+                    'convert_quality': 101,
+                }))
+
     def test_remove_original_needs_no_export_flag(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = load_convert_config(_write(tmp, 'convert_config.json', {

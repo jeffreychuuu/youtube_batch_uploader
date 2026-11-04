@@ -5,10 +5,12 @@ from googleapiclient.errors import HttpError
 
 from .config import load_upload_config
 from .cuts import (
+    CUT_DESCRIPTION_TEMPLATE,
     apply_entry_settings,
+    build_cut_description,
     cuts_for_state,
     get_job_cuts,
-    load_cuts,
+    load_cut_config,
     normalise_cuts,
     print_old_video_links,
 )
@@ -67,7 +69,7 @@ def main(config=None):
     )
     state = load_upload_state()
     convert_state = load_convert_state()
-    cuts_map = load_cuts()
+    cut_settings, cuts_map = load_cut_config()
     mark_golden_jobs(jobs, convert_state)
     _ensure_unique_job_keys(jobs, cuts_map)
     used_cut_keys = set()
@@ -113,14 +115,22 @@ def main(config=None):
             elif not is_same_source(entry, files):
                 print(f"[變更] 檔案已修改，重新處理：{job['display_name']}")
                 print_old_video_links(entry)
-                remove_cached_conversion(files, stored_cuts_norm)
+                remove_cached_conversion(
+                    files, stored_cuts_norm,
+                    encoder=cut_settings["cut_encoder"],
+                    quality=cut_settings["cut_quality"],
+                )
                 refresh_entry(entry, files)
                 apply_entry_settings(entry, cuts)
                 save_upload_state(state)
             elif cuts_added_or_changed:
                 print(f"[變更] cut 範圍已更新，重新處理：{job['display_name']}")
                 print_old_video_links(entry)
-                remove_cached_conversion(files, stored_cuts_norm)
+                remove_cached_conversion(
+                    files, stored_cuts_norm,
+                    encoder=cut_settings["cut_encoder"],
+                    quality=cut_settings["cut_quality"],
+                )
                 refresh_entry(entry, files)
                 apply_entry_settings(entry, cuts)
                 save_upload_state(state)
@@ -144,15 +154,21 @@ def main(config=None):
             if all_done:
                 print(f"[略過] 已上傳過：{job['display_name']}")
             else:
-                media_parts = media_parts_for_plan(plan, cuts)
+                media_parts = media_parts_for_plan(
+                    plan, cuts,
+                    cut_settings["cut_encoder"], cut_settings["cut_quality"],
+                )
                 media_path = media_parts[0]
                 title = job["title"]
                 display_name = title
                 if job["convert"] or plan.golden:
                     display_name += "（已轉檔為 MP4）"
+                description = build_cut_description(
+                    CUT_DESCRIPTION_TEMPLATE, cuts
+                )
                 upload_video(
                     youtube, media_path, title, display_name,
-                    config, entry, state
+                    config, entry, state, description=description
                 )
 
             # Add the uploaded video to the playlist (fills in missing on rerun)
@@ -167,7 +183,10 @@ def main(config=None):
 
             all_done = bool(entry.get("video_id"))
             if all_done:
-                cleanup_plan_cache(plan, cuts)
+                cleanup_plan_cache(
+                    plan, cuts,
+                    cut_settings["cut_encoder"], cut_settings["cut_quality"],
+                )
 
             # Remove local files only after the upload succeeds
             if (

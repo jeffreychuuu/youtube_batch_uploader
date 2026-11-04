@@ -30,10 +30,22 @@ DEFAULT_CONVERT_CONFIG = {
     # Merge files that belong together: VOB title sets, and same-folder files
     # of the same convert extension. false = every file is its own job.
     "combine": True,
+    # Encoder for golden conversion: "libx264" or "h264_videotoolbox" (macOS hardware)
+    "convert_encoder": "libx264",
+    # Quality value: CRF for libx264 (0-51), q:v for h264_videotoolbox (0-100)
+    "convert_quality": 20,
     # Remove the original files after a verified conversion
     "remove_original_after_conversion": False,
     # Conversion-time removal method: false = move to Trash, true = delete permanently
     "remove_original_permanent": False,
+}
+
+# Cut settings: how cut re-encodes are produced.
+DEFAULT_CUT_CONFIG = {
+    # Encoder for cut re-encodes: "libx264" or "h264_videotoolbox" (macOS hardware)
+    "cut_encoder": "libx264",
+    # Quality value: CRF for libx264 (0-51), q:v for h264_videotoolbox (0-100)
+    "cut_quality": 20,
 }
 
 # Upload settings: an independent scan and publish configuration.
@@ -86,6 +98,20 @@ def _validate_convert(config):
         sys.exit("[錯誤] convert_extensions 每項都必須係以 '.' 開頭的字串，例如 \".vob\"。")
     if not isinstance(config["combine"], bool):
         sys.exit("[錯誤] combine 必須係 true 或 false。")
+    if config["convert_encoder"] not in ("libx264", "h264_videotoolbox"):
+        sys.exit(
+            "[錯誤] convert_encoder 只可以係 'libx264' 或 'h264_videotoolbox'。"
+        )
+    if isinstance(config["convert_quality"], bool) or not isinstance(
+        config["convert_quality"], int
+    ):
+        sys.exit("[錯誤] convert_quality 必須係整數。")
+    max_quality = 51 if config["convert_encoder"] == "libx264" else 100
+    if not 0 <= config["convert_quality"] <= max_quality:
+        sys.exit(
+            f"[錯誤] convert_quality 必須介乎 0 至 {max_quality}"
+            f"（{config['convert_encoder']}）。"
+        )
     for key in (
         "remove_original_after_conversion",
         "remove_original_permanent",

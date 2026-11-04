@@ -108,18 +108,12 @@ def add_video_to_playlist(youtube, playlist_id, video_id):
     print(f"  -> 已成功加入播放清單")
 
 
-def upload_video(youtube, media_path, title, display_name, config, entry, state):
-    """Upload one video file, resuming after an interruption if possible.
-
-    entry is the per-part progress dict stored under the job's upload_state entry.
-    """
-    media_path = Path(media_path)
-    video_title = title
-
-    body = {
+def build_video_body(title, description, config):
+    """Build the videos.insert request body"""
+    return {
         'snippet': {
-            'title': video_title,
-            'description': '',
+            'title': title,
+            'description': description,
             'categoryId': '22'
         },
         'status': {
@@ -127,6 +121,20 @@ def upload_video(youtube, media_path, title, display_name, config, entry, state)
             'selfDeclaredMadeForKids': config["made_for_kids"]
         }
     }
+
+
+def upload_video(
+    youtube, media_path, title, display_name, config, entry, state,
+    description='',
+):
+    """Upload one video file, resuming after an interruption if possible.
+
+    entry is the per-part progress dict stored under the job's upload_state entry.
+    """
+    media_path = Path(media_path)
+    video_title = title
+
+    body = build_video_body(video_title, description, config)
 
     media = MediaFileUpload(
         str(media_path),

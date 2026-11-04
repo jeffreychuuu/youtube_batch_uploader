@@ -3,7 +3,11 @@ import json
 import re
 import sys
 
-from .config import CUTS_FILE
+from .config import CUTS_FILE, DEFAULT_CUT_CONFIG
+
+CUT_DESCRIPTION_TEMPLATE = (
+    "因違反 YouTube 政策，已剪走以下片段（共 {total}）：\n{cuts}"
+)
 
 
 def parse_time(text):
@@ -61,10 +65,98 @@ def parse_cut_ranges(items, key):
     return normalise_cuts(ranges)
 
 
-def load_cuts(cuts_file=CUTS_FILE):
-    """Load cuts_config.json as {title: [(start, end), ...]}"""
+def _kept_segments(previous_cuts):
+    """Map each kept golden segment to its position in the uploaded timeline"""
+    segments = []
+    previous_end = 0
+    removed = 0
+    for start, end in previous_cuts:
+        segments.append((previous_end, start, previous_end - removed))
+        removed += end - start
+        previous_end = max(previous_end, end)
+    segments.append((previous_end, None, previous_end - removed))
+    return segments
+
+
+def _map_uploaded_range(start, end, previous_cuts, key, batch_index):
+    """Translate a range on the uploaded timeline back to the golden timeline"""
+    for golden_start, golden_end, uploaded_start in _kept_segments(previous_cuts):
+        if golden_end is None:
+            uploaded_end = None
+        else:
+            uploaded_end = uploaded_start + (golden_end - golden_start)
+        midpoint = (start + end) / 2
+        if uploaded_start <= midpoint and (
+            uploaded_end is None or midpoint <= uploaded_end
+        ):
+            if start < uploaded_start or (
+                uploaded_end is not None and end > uploaded_end
+            ):
+                break
+            return (
+                golden_start + (start - uploaded_start),
+                golden_start + (end - uploaded_start),
+            )
+    sys.exit(
+        f"[錯誤] {CUTS_FILE.name} 內 \"{key}\" 第 {batch_index} 批範圍"
+        "跨越之前已剪走嘅片段，或者超出上傳版本範圍；"
+        "請確認時間係以上一個已上傳版本為準。"
+    )
+
+
+def parse_cut_batches(items, key):
+    """Parse flat golden-timeline ranges or ordered batches.
+
+    A flat array of strings is one batch on the golden timeline. An array of
+    arrays is a sequence of batches: the first is on the golden timeline, and
+    every later batch is on the timeline after all previous batches were cut.
+    All batches are resolved back to golden-timeline ranges.
+    """
+    if not isinstance(items, list):
+        sys.exit(f"[錯誤] {CUTS_FILE.name} 內 \"{key}\" 必須係時間範圍陣列。")
+    if not items:
+        return []
+    if all(isinstance(item, str) for item in items):
+        return parse_cut_ranges(items, key)
+    if not all(isinstance(item, list) for item in items):
+        sys.exit(
+            f"[錯誤] {CUTS_FILE.name} 內 \"{key}\" 必須全部係時間範圍字串，"
+            "或者全部係批次陣列。"
+        )
+
+    resolved = []
+    for batch_index, batch in enumerate(items, start=1):
+        mapped = [
+            _map_uploaded_range(start, end, resolved, key, batch_index)
+            for start, end in parse_cut_ranges(batch, key)
+        ]
+        resolved = normalise_cuts(resolved + mapped)
+    return resolved
+
+
+def _validate_cut_settings(settings, cuts_file):
+    if settings["cut_encoder"] not in ("libx264", "h264_videotoolbox"):
+        sys.exit(
+            f"[錯誤] {cuts_file.name} 嘅 cut_encoder "
+            "只可以係 'libx264' 或 'h264_videotoolbox'。"
+        )
+    if isinstance(settings["cut_quality"], bool) or not isinstance(
+        settings["cut_quality"], int
+    ):
+        sys.exit(f"[錯誤] {cuts_file.name} 嘅 cut_quality 必須係整數。")
+    max_quality = 51 if settings["cut_encoder"] == "libx264" else 100
+    if not 0 <= settings["cut_quality"] <= max_quality:
+        sys.exit(
+            f"[錯誤] {cuts_file.name} 嘅 cut_quality 必須介乎 0 至 "
+            f"{max_quality}（{settings['cut_encoder']}）。"
+        )
+
+
+def load_cut_config(cuts_file=CUTS_FILE):
+    """Load cuts_config.json as (settings, {title: [(start, end), ...]})"""
+    settings = dict(DEFAULT_CUT_CONFIG)
     if not cuts_file.exists():
-        return {}
+        return settings, {}
     try:
         with open(cuts_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
@@ -73,15 +165,34 @@ def load_cuts(cuts_file=CUTS_FILE):
     if not isinstance(data, dict):
         sys.exit(f"[錯誤] {cuts_file.name} 格式錯誤，最外層必須係 JSON object。")
 
+    for key in DEFAULT_CUT_CONFIG:
+        if key in data:
+            settings[key] = data.pop(key)
+    _validate_cut_settings(settings, cuts_file)
+
+    if "cuts" in data:
+        cuts_data = data.pop("cuts")
+        if not isinstance(cuts_data, dict):
+            sys.exit(
+                f"[錯誤] {cuts_file.name} 嘅 \"cuts\" 必須係 JSON object。"
+            )
+    else:
+        cuts_data = data
+
     cuts = {}
-    for key, items in data.items():
+    for key, items in cuts_data.items():
         if isinstance(items, dict):
             sys.exit(
                 f"[錯誤] {cuts_file.name} 內 \"{key}\" 係舊格式；"
                 "而家只支援 key → 時間範圍陣列。"
             )
-        cuts[key] = parse_cut_ranges(items, key)
-    return cuts
+        cuts[key] = parse_cut_batches(items, key)
+    return settings, cuts
+
+
+def load_cuts(cuts_file=CUTS_FILE):
+    """Load only the title → cut ranges map from cuts_config.json"""
+    return load_cut_config(cuts_file)[1]
 
 
 def get_job_cuts(cuts_map, job, used_keys=None):
@@ -104,6 +215,39 @@ def print_old_video_links(entry):
     if video_id:
         print("  [提示] 舊版本仍然喺 YouTube，確認新片上傳成功後請手動刪除：")
         print(f"    - https://youtu.be/{video_id}")
+
+
+def format_cut_ranges(cuts):
+    """Format cut ranges as one bullet per line"""
+    return "\n".join(
+        f"- {format_timestamp(start)} - {format_timestamp(end)}"
+        for start, end in normalise_cuts(cuts)
+    )
+
+
+def format_duration(seconds):
+    """Format a duration as Chinese minutes and seconds"""
+    total = int(round(seconds))
+    minutes, secs = divmod(total, 60)
+    if minutes == 0:
+        return f"{secs} 秒"
+    if secs == 0:
+        return f"{minutes} 分鐘"
+    return f"{minutes} 分 {secs} 秒"
+
+
+def build_cut_description(template, cuts):
+    """Build the upload description for a video with removed ranges"""
+    normalised = normalise_cuts(cuts)
+    if not normalised or not template:
+        return ""
+    total = sum(end - start for start, end in normalised)
+    return (
+        template
+        .replace("{total}", format_duration(total))
+        .replace("{cuts}", format_cut_ranges(normalised))
+        .strip()
+    )
 
 
 def cuts_variant(cuts):

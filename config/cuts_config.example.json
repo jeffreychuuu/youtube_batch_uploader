@@ -1,9 +1,14 @@
 {
-  "Example Video Title [combined]": [
-    "1:23:45-1:24:30",
-    "2:10:00-2:10:45"
-  ],
-  "Example Clip": [
-    "5:00-6:00"
-  ]
+  "cut_encoder": "libx264",
+  "cut_quality": 20,
+  "cuts": {
+    "Example Video Title [combined]": [
+      "1:23:45-1:24:30",
+      "2:10:00-2:10:45"
+    ],
+    "Example Clip": [
+      ["5:00-6:00"],
+      ["1:00-1:30"]
+    ]
+  }
 }

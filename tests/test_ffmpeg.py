@@ -5,7 +5,7 @@ from pathlib import Path
 
 from youtube_uploader.ffmpeg import (
     build_filter_graph, conversion_fingerprint, move_converted_to_source,
-    verify_video,
+    verify_video, video_encode_args,
 )
 
 
@@ -49,6 +49,25 @@ class BuildFilterGraphTests(unittest.TestCase):
         self.assertEqual(map_args, ['-map', '[vout]', '-map', '[acat]'])
 
 
+class VideoEncodeArgsTests(unittest.TestCase):
+    def test_default_uses_libx264(self):
+        self.assertEqual(video_encode_args(), [
+            '-c:v', 'libx264', '-preset', 'medium', '-crf', '20',
+        ])
+
+    def test_videotoolbox_uses_quality(self):
+        self.assertEqual(
+            video_encode_args('h264_videotoolbox', 65),
+            ['-c:v', 'h264_videotoolbox', '-q:v', '65'],
+        )
+
+    def test_libx264_uses_custom_crf(self):
+        self.assertEqual(
+            video_encode_args('libx264', 23)[-2:],
+            ['-crf', '23'],
+        )
+
+
 class ConversionFingerprintTests(unittest.TestCase):
     def test_cuts_change_the_fingerprint(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -65,6 +84,16 @@ class ConversionFingerprintTests(unittest.TestCase):
                 conversion_fingerprint([path], [(1, 2)]),
                 conversion_fingerprint([path], [(1, 2)]),
             )
+
+    def test_encoder_changes_the_fingerprint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'a.mp4'
+            path.write_bytes(b'video')
+            libx264 = conversion_fingerprint([path], [(1, 2)])
+            videotoolbox = conversion_fingerprint(
+                [path], [(1, 2)], encoder='h264_videotoolbox', quality=65
+            )
+            self.assertNotEqual(libx264, videotoolbox)
 
 
 class MoveAndVerifyTests(unittest.TestCase):

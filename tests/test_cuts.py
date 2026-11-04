@@ -4,8 +4,10 @@ import unittest
 from pathlib import Path
 
 from youtube_uploader.cuts import (
+    build_cut_description,
     format_timestamp,
     get_job_cuts,
+    load_cut_config,
     load_cuts,
     normalise_cuts,
     parse_cut_ranges,
@@ -77,6 +79,42 @@ class LoadCutsTests(unittest.TestCase):
         cuts = self._load({'Video': ['1:00-2:00']})
         self.assertEqual(cuts, {'Video': [(60, 120)]})
 
+    def test_loads_first_batch_on_golden_timeline(self):
+        cuts = self._load({'Video': [['1:00-2:00']]})
+        self.assertEqual(cuts, {'Video': [(60, 120)]})
+
+    def test_second_batch_uses_uploaded_timeline(self):
+        cuts = self._load({
+            'Video': [
+                ['20:00-30:00'],
+                ['25:00-27:00'],
+            ]
+        })
+        self.assertEqual(cuts, {'Video': [(1200, 1800), (2100, 2220)]})
+
+    def test_third_batch_maps_through_all_previous_batches(self):
+        cuts = self._load({
+            'Video': [
+                ['10:00-20:00'],
+                ['5:00-6:00'],
+                ['5:00-7:00'],
+            ]
+        })
+        self.assertEqual(cuts, {'Video': [(300, 480), (600, 1200)]})
+
+    def test_batch_range_crossing_previous_cut_is_rejected(self):
+        with self.assertRaises(SystemExit):
+            self._load({
+                'Video': [
+                    ['10:00-20:00'],
+                    ['5:00-15:00'],
+                ]
+            })
+
+    def test_rejects_mixed_flat_and_batch_values(self):
+        with self.assertRaises(SystemExit):
+            self._load({'Video': ['1:00-2:00', ['3:00-4:00']]})
+
     def test_accepts_combined_titles(self):
         cuts = self._load({'Folder [combined]': ['1:00-2:00']})
         self.assertIn('Folder [combined]', cuts)
@@ -96,6 +134,105 @@ class LoadCutsTests(unittest.TestCase):
     def test_rejects_malformed_range(self):
         with self.assertRaises(SystemExit):
             self._load({'Video': ['not a range']})
+
+    def test_ignores_reserved_settings(self):
+        cuts = self._load({
+            'cut_encoder': 'h264_videotoolbox',
+            'cut_quality': 65,
+            'Video': ['1:00-2:00'],
+        })
+        self.assertEqual(cuts, {'Video': [(60, 120)]})
+
+
+class CutSettingsTests(unittest.TestCase):
+    def _load(self, data):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'cuts_config.json'
+            path.write_text(json.dumps(data), encoding='utf-8')
+            return load_cut_config(path)
+
+    def test_defaults(self):
+        settings, cuts = self._load({'Video': ['1:00-2:00']})
+        self.assertEqual(settings, {
+            'cut_encoder': 'libx264',
+            'cut_quality': 20,
+        })
+        self.assertEqual(cuts, {'Video': [(60, 120)]})
+
+    def test_reads_reserved_settings(self):
+        settings, cuts = self._load({
+            'cut_encoder': 'h264_videotoolbox',
+            'cut_quality': 65,
+            'Video': ['1:00-2:00'],
+        })
+        self.assertEqual(settings, {
+            'cut_encoder': 'h264_videotoolbox',
+            'cut_quality': 65,
+        })
+        self.assertEqual(cuts, {'Video': [(60, 120)]})
+
+    def test_reads_wrapped_cuts(self):
+        settings, cuts = self._load({
+            'cut_encoder': 'h264_videotoolbox',
+            'cut_quality': 65,
+            'cuts': {'Video': ['1:00-2:00']},
+        })
+        self.assertEqual(settings, {
+            'cut_encoder': 'h264_videotoolbox',
+            'cut_quality': 65,
+        })
+        self.assertEqual(cuts, {'Video': [(60, 120)]})
+
+    def test_wrapped_cuts_without_settings(self):
+        settings, cuts = self._load({
+            'cuts': {'Video': ['1:00-2:00']},
+        })
+        self.assertEqual(settings, {
+            'cut_encoder': 'libx264',
+            'cut_quality': 20,
+        })
+        self.assertEqual(cuts, {'Video': [(60, 120)]})
+
+    def test_rejects_non_object_cuts(self):
+        with self.assertRaises(SystemExit):
+            self._load({'cuts': ['1:00-2:00']})
+
+    def test_rejects_unknown_encoder(self):
+        with self.assertRaises(SystemExit):
+            self._load({'cut_encoder': 'libx265', 'Video': []})
+
+    def test_rejects_invalid_quality(self):
+        with self.assertRaises(SystemExit):
+            self._load({'cut_quality': 101, 'Video': []})
+
+
+class CutDescriptionTests(unittest.TestCase):
+    TEMPLATE = "因違反 YouTube 政策，已剪走以下片段（共 {total}）：\n{cuts}"
+
+    def test_includes_total_and_formatted_ranges(self):
+        description = build_cut_description(
+            self.TEMPLATE, [(1200, 1800), (2100, 2220)]
+        )
+        self.assertEqual(
+            description,
+            "因違反 YouTube 政策，已剪走以下片段（共 12 分鐘）：\n"
+            "- 20:00 - 30:00\n"
+            "- 35:00 - 37:00",
+        )
+
+    def test_total_includes_seconds(self):
+        description = build_cut_description(self.TEMPLATE, [(60, 150)])
+        self.assertIn("（共 1 分 30 秒）", description)
+
+    def test_total_under_one_minute(self):
+        description = build_cut_description(self.TEMPLATE, [(0, 30)])
+        self.assertIn("（共 30 秒）", description)
+
+    def test_no_cuts_gives_empty_description(self):
+        self.assertEqual(build_cut_description(self.TEMPLATE, []), '')
+
+    def test_empty_template_gives_empty_description(self):
+        self.assertEqual(build_cut_description('', [(1, 2)]), '')
 
 
 class GetJobCutsTests(unittest.TestCase):

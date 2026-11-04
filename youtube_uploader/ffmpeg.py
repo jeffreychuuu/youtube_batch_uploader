@@ -10,8 +10,18 @@ from .state import source_fingerprint
 # ffmpeg encoding settings for the conversion (quality vs. speed/size)
 CONVERT_CRF = 20
 CONVERT_PRESET = 'medium'
+CUT_QUALITY = 65
 # Bump when the conversion pipeline changes so old caches are not reused
 CONVERT_VERSION = 3
+
+
+def video_encode_args(encoder=None, quality=None):
+    """Video encoder arguments for golden conversion or cut re-encoding"""
+    if encoder == 'h264_videotoolbox':
+        value = CUT_QUALITY if quality is None else quality
+        return ['-c:v', 'h264_videotoolbox', '-q:v', str(value)]
+    value = CONVERT_CRF if quality is None else quality
+    return ['-c:v', 'libx264', '-preset', CONVERT_PRESET, '-crf', str(value)]
 
 
 def converted_cache_path(fingerprint):
@@ -32,12 +42,14 @@ def remove_cache_by_fingerprint(fingerprint):
             pass
 
 
-def conversion_fingerprint(files, cuts=None):
-    """Cache key for a conversion; includes cut ranges when present"""
+def conversion_fingerprint(files, cuts=None, encoder=None, quality=None):
+    """Cache key for a conversion; includes cuts and encoder settings"""
     variant = f'v{CONVERT_VERSION}'
     normalised = normalise_cuts(cuts or [])
     if normalised:
         variant += f';cuts={cuts_variant(normalised)}'
+    if encoder:
+        variant += f';enc={encoder};q={quality}'
     _, _, fingerprint = source_fingerprint(files, variant=variant)
     return fingerprint
 
@@ -185,12 +197,13 @@ def build_filter_graph(files, cuts, has_audio, fps_expr, sample_rate):
     return ';'.join(graph), map_args
 
 
-def convert_to_mp4(files, cuts=None):
+def convert_to_mp4(files, cuts=None, encoder=None, quality=None):
     """Merge (if needed) and convert source videos to one MP4 (H.264/AAC).
 
     Any ranges in `cuts` are removed. The output is cached in CONVERTED_DIR so
     an interrupted upload resumes without re-encoding; the cache key covers the
-    source files and cut ranges, so changing either produces a fresh conversion.
+    source files, cut ranges and encoder settings, so changing any of them
+    produces a fresh conversion.
     """
     ffmpeg = shutil.which('ffmpeg')
     if not ffmpeg:
@@ -201,7 +214,9 @@ def convert_to_mp4(files, cuts=None):
 
     cuts = normalise_cuts(cuts or [])
     try:
-        fingerprint = conversion_fingerprint(files, cuts=cuts)
+        fingerprint = conversion_fingerprint(
+            files, cuts=cuts, encoder=encoder, quality=quality
+        )
     except OSError as e:
         raise RuntimeError(f'無法讀取來源檔案: {e}')
 
@@ -257,7 +272,7 @@ def convert_to_mp4(files, cuts=None):
         ffmpeg, '-y', '-hide_banner', '-loglevel', 'error', '-stats',
         *input_args,
         *stream_args,
-        '-c:v', 'libx264', '-preset', CONVERT_PRESET, '-crf', str(CONVERT_CRF),
+        *video_encode_args(encoder, quality),
         '-pix_fmt', 'yuv420p',
         '-c:a', 'aac', '-b:a', '192k',
         str(tmp_path),
@@ -277,10 +292,12 @@ def convert_to_mp4(files, cuts=None):
     return target
 
 
-def remove_cached_conversion(files, cuts=None):
-    """Delete the cached conversion for these source files and cut ranges"""
+def remove_cached_conversion(files, cuts=None, encoder=None, quality=None):
+    """Delete the cached conversion for these source files and settings"""
     try:
-        fingerprint = conversion_fingerprint(files, cuts)
+        fingerprint = conversion_fingerprint(
+            files, cuts, encoder=encoder, quality=quality
+        )
     except OSError:
         return
     remove_cache_by_fingerprint(fingerprint)
