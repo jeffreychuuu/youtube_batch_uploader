@@ -56,20 +56,9 @@ def combined_name_base(folder, files, root_folder, name_source,
     return folder_display_name(folder)
 
 
-def converted_output_path(job, output_folder, root_folder):
-    """Golden path under output_folder, preserving the source folder structure"""
-    folder = job["files"][0].parent
-    if folder.name.upper() == 'VIDEO_TS' and folder.parent != folder:
-        folder = folder.parent
-    try:
-        relative = folder.relative_to(Path(root_folder).expanduser())
-    except ValueError:
-        relative = Path()
-    return (
-        Path(output_folder).expanduser()
-        / relative
-        / f"{job['title']}.mp4"
-    )
+def converted_output_path(job, output_folder):
+    """Golden path directly inside output_folder"""
+    return Path(output_folder).expanduser() / f"{job['title']}.mp4"
 
 
 def converted_source_path(job):
@@ -293,3 +282,15 @@ def remove_local_file(file_path, permanent):
     else:
         move_to_trash(file_path)
         print(f"  [清理] 已將本機檔案移到垃圾桶: {file_path}")
+
+
+def remove_empty_folders(file_path, root_folder):
+    """Remove empty parent folders up to, but not including, root_folder"""
+    root = Path(root_folder).expanduser().resolve()
+    folder = Path(file_path).expanduser().resolve().parent
+    while folder != root and root in folder.parents:
+        try:
+            folder.rmdir()
+        except OSError:
+            break
+        folder = folder.parent

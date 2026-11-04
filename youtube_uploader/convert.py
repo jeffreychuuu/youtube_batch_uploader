@@ -32,9 +32,7 @@ def run_convert_only(config):
         for job in jobs:
             if job.get("convert"):
                 job["output_path"] = str(
-                    converted_output_path(
-                        job, output_folder, config["root_folder"]
-                    )
+                    converted_output_path(job, output_folder)
                 )
     ensure_unique_converted_targets(jobs)
 

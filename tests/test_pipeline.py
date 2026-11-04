@@ -316,6 +316,42 @@ class RemoveOriginalSourcesTests(unittest.TestCase):
             })
         remove.assert_not_called()
 
+    def test_keeps_empty_folder_by_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'Root'
+            folder = root / 'A'
+            folder.mkdir(parents=True)
+            source = folder / 'a.avi'
+            source.touch()
+
+            remove_original_sources([source], {
+                'remove_original_after_conversion': True,
+                'remove_original_permanent': True,
+                'root_folder': root,
+            })
+
+            self.assertFalse(source.exists())
+            self.assertTrue(folder.exists())
+
+    def test_removes_empty_folder_when_enabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'Root'
+            folder = root / 'A'
+            folder.mkdir(parents=True)
+            source = folder / 'a.avi'
+            source.touch()
+
+            remove_original_sources([source], {
+                'remove_original_after_conversion': True,
+                'remove_original_permanent': True,
+                'remove_empty_folders': True,
+                'root_folder': root,
+            })
+
+            self.assertFalse(source.exists())
+            self.assertFalse(folder.exists())
+            self.assertTrue(root.exists())
+
 
 class GoldenSmokeTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('ffmpeg'), 'ffmpeg not installed')

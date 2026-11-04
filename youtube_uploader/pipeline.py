@@ -1,7 +1,9 @@
 """Source preparation and media selection for the upload pipeline."""
 from dataclasses import dataclass
 
-from .files import converted_source_path, remove_local_file
+from .files import (
+    converted_source_path, remove_empty_folders, remove_local_file,
+)
 from .ffmpeg import (
     convert_to_mp4, move_converted_to_source, remove_cached_conversion,
     verify_video,
@@ -79,6 +81,9 @@ def remove_original_sources(files, config):
             print(
                 f"  [警告] 無法移除原檔 {source_file.name}: {error}"
             )
+            continue
+        if config.get("remove_empty_folders") and config.get("root_folder"):
+            remove_empty_folders(source_file, config["root_folder"])
 
 
 def media_parts_for_plan(plan, cuts, encoder=None, quality=None):

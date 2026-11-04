@@ -4,7 +4,7 @@ from pathlib import Path
 
 from youtube_uploader.files import (
     build_upload_jobs, converted_output_path, converted_source_path,
-    natural_sort_key,
+    natural_sort_key, remove_empty_folders,
 )
 
 
@@ -231,21 +231,21 @@ class ConvertedSourcePathTests(unittest.TestCase):
         }
         self.assertEqual(converted_source_path(job), Path('/v/1995/Family.mp4'))
 
-    def test_output_folder_preserves_relative_structure(self):
+    def test_output_folder_is_flat(self):
         job = {'title': 'Clip', 'files': [Path('/v/A/B/clip.AVI')]}
         self.assertEqual(
-            converted_output_path(job, '/out', '/v'),
-            Path('/out/A/B/Clip.mp4'),
+            converted_output_path(job, '/out'),
+            Path('/out/Clip.mp4'),
         )
 
-    def test_output_folder_skips_video_ts_level(self):
+    def test_output_folder_is_flat_for_video_ts(self):
         job = {
             'title': 'Family',
             'files': [Path('/v/A/VIDEO_TS/VTS_01_1.VOB')],
         }
         self.assertEqual(
-            converted_output_path(job, '/out', '/v'),
-            Path('/out/A/Family.mp4'),
+            converted_output_path(job, '/out'),
+            Path('/out/Family.mp4'),
         )
 
     def test_output_path_overrides_source_folder(self):
@@ -263,6 +263,51 @@ class ConvertedSourcePathTests(unittest.TestCase):
     def test_single_file_uses_stem(self):
         job = {'title': 'Clip', 'files': [Path('/v/Clip.mp4')]}
         self.assertEqual(converted_source_path(job), Path('/v/Clip.mp4'))
+
+
+class RemoveEmptyFoldersTests(unittest.TestCase):
+    def test_removes_empty_parent_chain_but_not_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'Root'
+            leaf = root / 'A' / 'B'
+            leaf.mkdir(parents=True)
+            source = leaf / 'clip.AVI'
+            source.touch()
+            source.unlink()
+
+            remove_empty_folders(source, root)
+
+            self.assertFalse(leaf.exists())
+            self.assertFalse(leaf.parent.exists())
+            self.assertTrue(root.exists())
+
+    def test_keeps_non_empty_parent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'Root'
+            leaf = root / 'A'
+            leaf.mkdir(parents=True)
+            (leaf / 'keep.txt').touch()
+            source = leaf / 'clip.AVI'
+            source.touch()
+            source.unlink()
+
+            remove_empty_folders(source, root)
+
+            self.assertTrue(leaf.exists())
+
+    def test_does_not_remove_outside_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'Root'
+            other = Path(tmp) / 'Other'
+            root.mkdir()
+            other.mkdir()
+            source = other / 'clip.AVI'
+            source.touch()
+            source.unlink()
+
+            remove_empty_folders(source, root)
+
+            self.assertTrue(other.exists())
 
 
 if __name__ == '__main__':

@@ -214,7 +214,8 @@ cp config/cuts_config.example.json config/cuts_config.json
   "convert_encoder": "libx264",
   "convert_quality": 20,
   "remove_original_after_conversion": false,
-  "remove_original_permanent": false
+  "remove_original_permanent": false,
+  "remove_empty_folders": false
 }
 ```
 
@@ -224,11 +225,12 @@ cp config/cuts_config.example.json config/cuts_config.json
 | `convert_extensions` | Extensions transcoded to MP4 with ffmpeg (default `[".vob"]`); add `".avi"` to force AVI transcoding. The convert script scans exactly these extensions |
 | `combine` | `true` (default) merges VOB title sets and groups same-folder files of **any** extension listed in `convert_extensions`, in natural order; `false` makes every file its own job |
 | `combined_name_source` | Combined title source: `folder` (default, immediate folder name), `root` (configured `root_folder` name), or `prefix` (common prefix of all video filenames in that folder; VOB groups fall back to the folder name) |
-| `output_folder` | Empty (default) keeps the golden MP4 next to its source. Set a folder to write goldens there instead, preserving each source folder's relative path under `root_folder`; point `upload_config.root_folder` at it for uploads |
+| `output_folder` | Empty (default) keeps the golden MP4 next to its source. Set a folder to write goldens directly into it; point `upload_config.root_folder` at it for uploads. Titles must be unique — conversion stops instead of overwriting |
 | `convert_encoder` | Encoder for golden conversion: `libx264` (default, best compression) or `h264_videotoolbox` (macOS hardware, faster but less efficient) |
 | `convert_quality` | CRF `0`–`51` for `libx264` (lower = better quality, larger file); `q:v` `0`–`100` for `h264_videotoolbox` (higher = better quality, larger file) |
 | `remove_original_after_conversion` | `true` = remove the original files after the converted MP4 is verified; also cleans up sources of already-converted jobs on a later run |
 | `remove_original_permanent` | Removal method for conversion-time cleanup: `false` = move to Trash (default) / `true` = delete permanently |
+| `remove_empty_folders` | `true` = after conversion cleanup, also remove source folders that become empty, up to (but not including) `root_folder`. Only meaningful when `remove_original_after_conversion` is `true` |
 
 **`config/upload_config.json`** — how to scan and publish (fully independent):
 
@@ -264,7 +266,7 @@ The cut list and its encoder settings live in `config/cuts_config.json`; see sec
 
 **Combining files.** `combine` decides whether files are merged before conversion. `true` (default) merges VOB title sets and groups same-folder files of **any** extension listed in `convert_extensions` (for example `.avi`, `.mkv`, or `.m2ts` segments), in natural order. `false` makes every source file its own conversion job and upload. A combined group is named `<folder> [combined]` and produces one golden MP4 and one upload; with `false`, each source file keeps its own filename as the title and gets its own golden MP4 and upload. Formats outside `convert_extensions` are uploaded as-is and are not combined. `combined_name_source` controls the combined title: `folder` (default) uses the immediate folder name, `root` uses the configured `root_folder` name, and `prefix` uses the common prefix of all video filenames in that folder (for example `Event-100-00.AVI` + `Event-100-01.AVI` → `Event-100 [combined]`).
 
-**Converted sources and golden files.** A converted file always becomes a *golden source*: later runs cut and upload from it instead of re-reading the originals. If `output_folder` is set, goldens are written there with the same relative subfolders; set `upload_config.root_folder` to that folder (or a parent) so `batch_upload.py` finds them. Uploads with cuts are re-encoded; uploads without cuts use the file as-is. `remove_original_after_conversion` is the only setting that removes the original files at conversion time — `remove_local_after_upload` never removes a golden file. A golden job uses its recorded title as the `config/cuts_config.json` key, so cuts keep working after conversion. Two sources that would write the same golden file stop the run instead of overwriting.
+**Converted sources and golden files.** A converted file always becomes a *golden source*: later runs cut and upload from it instead of re-reading the originals. If `output_folder` is set, goldens are written directly into that folder; set `upload_config.root_folder` to that folder so `batch_upload.py` finds them. Two jobs that produce the same title stop the run instead of overwriting. `remove_empty_folders` can clean up source folders left empty after original files are removed. Uploads with cuts are re-encoded; uploads without cuts use the file as-is. `remove_original_after_conversion` is the only setting that removes the original files at conversion time — `remove_local_after_upload` never removes a golden file. A golden job uses its recorded title as the `config/cuts_config.json` key, so cuts keep working after conversion. Two sources that would write the same golden file stop the run instead of overwriting.
 
 ### 3.2 Run
 

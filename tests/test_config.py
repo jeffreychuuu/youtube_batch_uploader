@@ -22,6 +22,18 @@ class ConvertConfigTests(unittest.TestCase):
         self.assertFalse(config['remove_original_permanent'])
         self.assertTrue(config['combine'])
 
+    def test_remove_empty_folders_defaults_to_false(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = load_convert_config(_write(tmp, 'convert_config.json', {}))
+        self.assertFalse(config['remove_empty_folders'])
+
+    def test_remove_empty_folders_must_be_boolean(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(SystemExit):
+                load_convert_config(_write(tmp, 'convert_config.json', {
+                    'remove_empty_folders': 'yes',
+                }))
+
     def test_output_folder_defaults_to_empty(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = load_convert_config(_write(tmp, 'convert_config.json', {}))

@@ -9,5 +9,6 @@
   "convert_encoder": "libx264",
   "convert_quality": 20,
   "remove_original_after_conversion": false,
-  "remove_original_permanent": false
+  "remove_original_permanent": false,
+  "remove_empty_folders": false
 }

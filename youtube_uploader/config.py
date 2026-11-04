@@ -40,6 +40,8 @@ DEFAULT_CONVERT_CONFIG = {
     "convert_quality": 20,
     # Remove the original files after a verified conversion
     "remove_original_after_conversion": False,
+    # Remove source folders that become empty after conversion cleanup
+    "remove_empty_folders": False,
     # Conversion-time removal method: false = move to Trash, true = delete permanently
     "remove_original_permanent": False,
 }
@@ -126,6 +128,7 @@ def _validate_convert(config):
     for key in (
         "remove_original_after_conversion",
         "remove_original_permanent",
+        "remove_empty_folders",
     ):
         if not isinstance(config[key], bool):
             sys.exit(f"[錯誤] {key} 必須係 true 或 false。")

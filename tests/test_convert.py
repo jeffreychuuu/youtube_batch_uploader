@@ -33,7 +33,7 @@ class ConvertOnlyTests(unittest.TestCase):
             job = prepare.call_args.args[0]
         self.assertEqual(
             job['output_path'],
-            str(Path(tmp) / 'out' / 'Folder' / 'clip.mp4'),
+            str(Path(tmp) / 'out' / 'clip.mp4'),
         )
 
     @patch('youtube_uploader.convert.build_upload_jobs', return_value=[])
