@@ -30,7 +30,7 @@
 
 - macOS（Windows / Linux 亦適用，只需調整路徑）
 - Python 3.8 或以上
-- ffmpeg（用嚟轉 VOB／其他 `convert_extensions` 格式，以及執行 cut）
+- ffmpeg（任何需要轉檔嘅格式，即 `convert_extensions` 入面嘅檔案，以及執行 cut 時都需要）
 - 一個已建立頻道的 YouTube / Google 帳號；上傳超過 15 分鐘的影片需要驗證帳戶（YouTube 上限為每段 12 小時 / 256 GB）
 - 已啟用 YouTube Data API v3 的 Google Cloud 專案
 
@@ -51,7 +51,7 @@ pip3 install google-api-python-client google-auth-oauthlib google-auth-httplib2
 
 ### 1.2 安裝 ffmpeg（轉檔與 cut 需要）
 
-VOB 無法直接上傳到 YouTube，Script 會用 ffmpeg 合併並轉成 MP4，亦會用 ffmpeg 執行 cut，因此 ffmpeg 必須在 `PATH` 上：
+有啲格式（例如 VOB）無法直接上傳到 YouTube。Script 會用 ffmpeg 將 `convert_extensions` 入面任何格式轉成 MP4，亦會用 ffmpeg 執行 cut，因此 ffmpeg 必須在 `PATH` 上：
 
 ```bash
 brew install ffmpeg          # macOS
@@ -60,7 +60,7 @@ brew install ffmpeg          # macOS
 
 Windows：由 [ffmpeg.org](https://ffmpeg.org/) 下載並加入 `PATH`。
 
-> `convert_extensions` 列出嘅格式（預設 `.vob`）同所有 cut 都需要 ffmpeg。唔喺 `convert_extensions` 嘅格式會直接上傳。
+> `convert_extensions` 入面任何格式（預設 `.vob`；加入 `.avi`、`.m2ts` 等就會轉埋）同所有 cut 都需要 ffmpeg。唔喺 `convert_extensions` 嘅格式會直接上傳。
 
 ### 1.3 建立 YouTube API 憑證
 
@@ -90,7 +90,7 @@ Windows：由 [ffmpeg.org](https://ffmpeg.org/) 下載並加入 `PATH`。
 
 ## 2. 影片清單
 
-本專案版本**不使用 CSV**：Script 會直接遞迴掃描 `root_folder` 內所有影片檔案，並以**檔案名稱（不含副檔名）作為影片標題**。唯一例外是多段 VOB 合併後的影片，會以 `<folder> [combined]` 為標題（見下文）。
+Script 會直接遞迴掃描 `root_folder` 內所有影片檔案，並以**檔案名稱（不含副檔名）作為影片標題**。唯一例外是多段 VOB 合併後的影片，會以 `<folder> [combined]` 為標題（見下文）。
 
 上傳只會掃描 `config/upload_config.json` 嘅 `video_extensions`（預設 `[".mp4"]`，即 golden 輸出）。只有可以直接上傳嘅格式先好加其他 extension。
 
@@ -117,8 +117,6 @@ Windows：由 [ffmpeg.org](https://ffmpeg.org/) 下載並加入 `PATH`。
 ```
 
 三條影片都會被上傳，標題分別是「影片 A」、「影片 B」、「影片 C」。
-
-如果你想用 CSV 指定每條影片的標題、描述、標籤、權限等，需要另外擴充 Script（目前尚未支援）。
 
 ### 2.1 Cut-list：剪走被 YouTube flag 嘅片段
 
@@ -222,7 +220,7 @@ cp config/cuts_config.example.json config/cuts_config.json
 |---|---|
 | `root_folder` | 影片來源資料夾，會遞迴掃描所有子資料夾 |
 | `convert_extensions` | 先用 ffmpeg 轉成 MP4 的副檔名（預設 `[".vob"]`）；加入 `".avi"` 可強制 AVI 轉檔。Convert script 只會掃描呢啲副檔名 |
-| `combine` | `true`（預設）會合併 VOB title set，同一個 folder 內同一個 convert extension 嘅檔案亦會按 natural order 合併；`false` 每條片獨立 job |
+| `combine` | `true`（預設）會合併 VOB title set，同一個 folder 內**任何** `convert_extensions` 格式嘅檔案亦會按 natural order 合併；`false` 每條片獨立 job |
 | `convert_encoder` | Golden 轉檔用嘅 encoder：`libx264`（預設，壓縮效率最好）或 `h264_videotoolbox`（macOS 硬體，快但效率較低） |
 | `convert_quality` | `libx264` 用 CRF `0`–`51`（越低畫質越好、檔案越大）；`h264_videotoolbox` 用 `q:v` `0`–`100`（越高畫質越好、檔案越大） |
 | `remove_original_after_conversion` | `true` = 轉檔後 MP4 驗證成功就移除原始檔案；之後再行 convert 亦會清走已轉檔 job 嘅原檔 |
@@ -260,7 +258,7 @@ cp config/cuts_config.example.json config/cuts_config.json
 
 Cut list 同 encoder 設定放喺 `config/cuts_config.json`，詳見 2.1。
 
-**檔案合併。** `combine` 決定轉檔前要唔要合併檔案。`true`（預設）會合併 VOB title set，同一個 folder 內同一個 convert extension 嘅檔案亦會按 natural order 合併（例如 `.m2ts` 分段）；`false` 每個來源檔各自一個轉檔 job 同 upload。合併後嘅一組默認叫 `<folder> [combined]`，並會產生一個 golden MP4、一個 upload；用 `false` 時每個來源檔保留自己嘅 filename 做 title，各自有 golden MP4 同 upload。
+**檔案合併。** `combine` 決定轉檔前要唔要合併檔案。`true`（預設）會合併 VOB title set，同一個 folder 內**任何** `convert_extensions` 格式嘅檔案亦會按 natural order 合併（例如 `.avi`、`.mkv` 或 `.m2ts` 分段）；`false` 每個來源檔各自一個轉檔 job 同 upload。合併後嘅一組默認叫 `<folder> [combined]`，並會產生一個 golden MP4、一個 upload；用 `false` 時每個來源檔保留自己嘅 filename 做 title，各自有 golden MP4 同 upload。唔喺 `convert_extensions` 嘅格式會直接上傳，唔會合併。
 
 **轉檔來源與 golden source。** 轉檔後嘅檔案一定會成為 *golden source*：之後嘅 run 會由佢剪、上傳，唔再重新讀取原始檔案。有 cut 先會 re-encode。`remove_original_after_conversion` 係唯一會喺轉檔階段移除原始檔案嘅設定——`remove_local_after_upload` 永遠唔會刪除 golden 檔案。Golden job 用 recorded title 做 `config/cuts_config.json` key，所以 `cuts_config.json` 照樣有效。如果兩個來源會寫出同一個 golden 檔案，程式會直接報錯，唔會覆蓋。
 

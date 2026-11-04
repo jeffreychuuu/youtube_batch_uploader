@@ -30,7 +30,7 @@ Supports **resumable uploads**: if the connection drops, the machine shuts down,
 
 - macOS (Windows / Linux also work; adjust paths as needed)
 - Python 3.8 or later
-- ffmpeg (required to convert VOB/other `convert_extensions` formats and to apply cuts)
+- ffmpeg (required whenever conversion is needed — any format in `convert_extensions` — and whenever cuts are applied)
 - A YouTube / Google account with a channel; uploads longer than 15 minutes require a verified account (YouTube's maximum is 12 hours / 256 GB per video)
 - A Google Cloud project with the YouTube Data API v3 enabled
 
@@ -51,7 +51,7 @@ pip3 install google-api-python-client google-auth-oauthlib google-auth-httplib2
 
 ### 1.2 Install ffmpeg (for conversion and cuts)
 
-VOB files cannot be uploaded to YouTube directly. The script merges and converts them to MP4 with ffmpeg, and applies cuts with ffmpeg, so ffmpeg must be on your `PATH`:
+Some formats (for example VOB) cannot be uploaded to YouTube directly. The script converts any extension listed in `convert_extensions` to MP4 with ffmpeg, and applies cuts with ffmpeg, so ffmpeg must be on your `PATH`:
 
 ```bash
 brew install ffmpeg          # macOS
@@ -60,7 +60,7 @@ brew install ffmpeg          # macOS
 
 Windows: download a build from [ffmpeg.org](https://ffmpeg.org/) and add it to `PATH`.
 
-> ffmpeg is required for extensions listed in `convert_extensions` (default: `.vob`) and whenever cuts are applied. Formats outside `convert_extensions` are uploaded as-is.
+> ffmpeg is required for any extension listed in `convert_extensions` (default: `.vob`; add `.avi`, `.m2ts`, etc. to convert those too) and whenever cuts are applied. Formats outside `convert_extensions` are uploaded as-is.
 
 ### 1.3 Create YouTube API credentials
 
@@ -90,7 +90,7 @@ The first run opens a browser asking you to sign in to your Google account and a
 
 ## 2. Video List
 
-This version **does not use a CSV file**: the script recursively scans every video file under `root_folder` and uses the **file name (without extension) as the video title**. The only exception is a merged multi-segment VOB, which is titled `<folder> [combined]` (see below).
+The script recursively scans every video file under `root_folder` and uses the **file name (without extension) as the video title**. The only exception is a merged multi-segment VOB, which is titled `<folder> [combined]` (see below).
 
 The upload scan reads the extensions in `video_extensions` in `config/upload_config.json` (default `[".mp4"]`, the golden output). Add other extensions only if those files are uploadable as-is.
 
@@ -117,8 +117,6 @@ In other words, you only need:
 ```
 
 All three videos will be uploaded with the titles "Video A", "Video B", and "Video C".
-
-If you want to specify each video's title, description, tags, or privacy with a CSV file, you need to extend the script (currently unsupported).
 
 ### 2.1 Cut-list: remove flagged segments
 
@@ -222,7 +220,7 @@ cp config/cuts_config.example.json config/cuts_config.json
 |---|---|
 | `root_folder` | Source folder for videos; all subfolders are scanned recursively |
 | `convert_extensions` | Extensions transcoded to MP4 with ffmpeg (default `[".vob"]`); add `".avi"` to force AVI transcoding. The convert script scans exactly these extensions |
-| `combine` | `true` (default) merges VOB title sets and same-folder files of the same convert extension, in natural order; `false` makes every file its own job |
+| `combine` | `true` (default) merges VOB title sets and groups same-folder files of **any** extension listed in `convert_extensions`, in natural order; `false` makes every file its own job |
 | `convert_encoder` | Encoder for golden conversion: `libx264` (default, best compression) or `h264_videotoolbox` (macOS hardware, faster but less efficient) |
 | `convert_quality` | CRF `0`–`51` for `libx264` (lower = better quality, larger file); `q:v` `0`–`100` for `h264_videotoolbox` (higher = better quality, larger file) |
 | `remove_original_after_conversion` | `true` = remove the original files after the converted MP4 is verified; also cleans up sources of already-converted jobs on a later run |
@@ -260,7 +258,7 @@ Your local config files live in `config/` and are listed in `.gitignore`, so the
 
 The cut list and its encoder settings live in `config/cuts_config.json`; see section 2.1.
 
-**Combining files.** `combine` decides whether files are merged before conversion. `true` (default) merges VOB title sets and same-folder files of the same convert extension (for example `.m2ts` segments), in natural order. `false` makes every source file its own conversion job and upload. A combined group is named `<folder> [combined]` and produces one golden MP4 and one upload; with `false`, each source file keeps its own filename as the title and gets its own golden MP4 and upload.
+**Combining files.** `combine` decides whether files are merged before conversion. `true` (default) merges VOB title sets and groups same-folder files of **any** extension listed in `convert_extensions` (for example `.avi`, `.mkv`, or `.m2ts` segments), in natural order. `false` makes every source file its own conversion job and upload. A combined group is named `<folder> [combined]` and produces one golden MP4 and one upload; with `false`, each source file keeps its own filename as the title and gets its own golden MP4 and upload. Formats outside `convert_extensions` are uploaded as-is and are not combined.
 
 **Converted sources and golden files.** A converted file always becomes a *golden source*: later runs cut and upload from it instead of re-reading the originals. Uploads with cuts are re-encoded; uploads without cuts use the file as-is. `remove_original_after_conversion` is the only setting that removes the original files at conversion time — `remove_local_after_upload` never removes a golden file. A golden job uses its recorded title as the `config/cuts_config.json` key, so cuts keep working after conversion. Two sources that would write the same golden file stop the run instead of overwriting.
 
