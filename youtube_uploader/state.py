@@ -6,17 +6,18 @@ import os
 from .config import STATE_FILE
 
 
-def load_state():
+def load_state(state_file=STATE_FILE):
     """Load upload_state.json; start fresh if the file is corrupt, without affecting uploaded videos"""
-    if STATE_FILE.exists():
+    if state_file.exists():
         try:
-            with open(STATE_FILE, 'r', encoding='utf-8') as f:
+            with open(state_file, 'r', encoding='utf-8') as f:
                 state = json.load(f)
             if isinstance(state.get("uploads"), dict):
+                state.setdefault("golden_sources", {})
                 return state
         except (json.JSONDecodeError, OSError) as e:
-            print(f"[警告] 進度檔 {STATE_FILE.name} 無法讀取（{e}），將重新開始記錄。")
-    return {"uploads": {}}
+            print(f"[警告] 進度檔 {state_file.name} 無法讀取（{e}），將重新開始記錄。")
+    return {"uploads": {}, "golden_sources": {}}
 
 
 def save_state(state):
@@ -29,6 +30,43 @@ def save_state(state):
 
 def get_entry(state, file_path):
     return state["uploads"].setdefault(str(file_path.resolve()), {})
+
+
+def get_golden_paths(state):
+    """Return the absolute golden source paths recorded in state"""
+    return set(state.get("golden_sources", {}))
+
+
+def record_golden_source(state, golden_path, title, source_files):
+    """Record a converted MP4 as the golden source for a job"""
+    state.setdefault("golden_sources", {})[str(golden_path.resolve())] = {
+        "title": title,
+        "source_files": [str(path.resolve()) for path in source_files],
+    }
+
+
+def migrate_completed_entry(state, old_key, golden_path):
+    """Move a completed upload entry to the golden path and refresh its fingerprint"""
+    old = state["uploads"].get(old_key)
+    if not old:
+        return
+    parts = old.get("parts") or []
+    if not parts and old.get("video_id"):
+        parts = [{
+            "video_id": old["video_id"],
+            "playlist_added": old.get("playlist_added", False),
+            "bytes_sent": old.get("bytes_sent"),
+        }]
+    if not parts or not all(part.get("video_id") for part in parts):
+        return
+    size, mtime, _ = source_fingerprint([golden_path])
+    state["uploads"][str(golden_path.resolve())] = {
+        "parts": parts,
+        "cuts": old.get("cuts", []),
+        "part_duration_hours": old.get("part_duration_hours"),
+        "size": size,
+        "mtime": mtime,
+    }
 
 
 def source_fingerprint(files, variant=''):
