@@ -96,6 +96,38 @@ class PrepareSourceTests(unittest.TestCase):
     @patch('youtube_uploader.pipeline.verify_video')
     @patch('youtube_uploader.pipeline.convert_to_mp4')
     @patch('youtube_uploader.pipeline.converted_source_path')
+    def test_reuse_allows_subset_of_recorded_sources(
+        self, path_mock, convert, verify, save
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / 'Folder.mp4'
+            target.touch()
+            kept = Path(tmp) / 'VTS_01_3.VOB'
+            removed = Path(tmp) / 'VTS_01_1.VOB'
+            path_mock.return_value = target
+            job = {'title': 'Folder', 'files': [kept], 'convert': True}
+            state = {
+                'uploads': {},
+                'golden_sources': {
+                    str(target.resolve()): {
+                        'title': 'Folder',
+                        'source_files': [
+                            str(removed.resolve()), str(kept.resolve())
+                        ],
+                    }
+                },
+            }
+            plan = prepare_source(job, state, {
+                'export_converted_source': True,
+                'remove_original_after_conversion': False,
+            })
+        self.assertTrue(plan.golden)
+        convert.assert_not_called()
+
+    @patch('youtube_uploader.pipeline.save_state')
+    @patch('youtube_uploader.pipeline.verify_video')
+    @patch('youtube_uploader.pipeline.convert_to_mp4')
+    @patch('youtube_uploader.pipeline.converted_source_path')
     def test_reuse_refuses_provenance_mismatch(
         self, path_mock, convert, verify, save
     ):

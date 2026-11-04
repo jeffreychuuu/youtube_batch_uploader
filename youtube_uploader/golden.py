@@ -3,10 +3,16 @@ from .files import converted_source_path
 
 
 def source_provenance_matches(recorded, files):
-    """Whether a recorded golden belongs to the same source files"""
-    recorded_files = recorded.get("source_files") or []
-    current_files = sorted(str(path.resolve()) for path in files)
-    return sorted(recorded_files) == current_files
+    """Whether the current source files are a subset of the recorded golden's sources
+
+    A subset is allowed: originals may already have been removed after a
+    verified export. A path that is not in the recorded set means the source
+    group changed (for example a new VOB segment), so the golden cannot be
+    trusted.
+    """
+    recorded_files = set(recorded.get("source_files") or [])
+    current_files = {str(path.resolve()) for path in files}
+    return bool(current_files) and current_files <= recorded_files
 
 
 def ensure_unique_converted_targets(jobs):

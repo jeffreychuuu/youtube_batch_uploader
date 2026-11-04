@@ -70,6 +70,59 @@ class GoldenHelperTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 skip_converted_source_jobs(jobs, state)
 
+    def test_skip_allows_subset_of_recorded_sources(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            sources = [folder / f'VTS_01_{index}.VOB' for index in range(1, 5)]
+            for source in sources:
+                source.touch()
+            golden = folder / 'Folder.mp4'
+            golden.touch()
+            jobs = [{
+                'title': 'Folder',
+                'files': sources[2:],
+                'convert': True,
+                'display_name': 'Folder',
+            }]
+            state = {
+                'golden_sources': {
+                    str(golden.resolve()): {
+                        'title': 'Folder',
+                        'source_files': [str(path.resolve()) for path in sources],
+                    }
+                }
+            }
+            skipped = skip_converted_source_jobs(jobs, state)
+        self.assertEqual(skipped, ['Folder'])
+
+    def test_skip_refuses_source_not_in_record(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            recorded = [folder / 'VTS_01_1.VOB', folder / 'VTS_01_2.VOB']
+            current = [folder / 'VTS_01_1.VOB', folder / 'VTS_01_3.VOB']
+            for source in set(recorded + current):
+                source.touch()
+            golden = folder / 'Folder.mp4'
+            golden.touch()
+            jobs = [{
+                'title': 'Folder',
+                'files': current,
+                'convert': True,
+                'display_name': 'Folder',
+            }]
+            state = {
+                'golden_sources': {
+                    str(golden.resolve()): {
+                        'title': 'Folder',
+                        'source_files': [
+                            str(path.resolve()) for path in recorded
+                        ],
+                    }
+                }
+            }
+            with self.assertRaises(SystemExit):
+                skip_converted_source_jobs(jobs, state)
+
     def test_skip_applies_to_non_convert_source(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp)
