@@ -1,31 +1,68 @@
-"""Upload progress tracking in upload_state.json."""
+"""Upload and conversion progress tracking."""
 import hashlib
 import json
 import os
 
-from .config import STATE_FILE
+from .config import CONVERT_STATE_FILE, STATE_FILE
 
 
-def load_state(state_file=STATE_FILE):
-    """Load upload_state.json; start fresh if the file is corrupt, without affecting uploaded videos"""
+def _atomic_write(path, data):
+    tmp = path.with_name(path.name + '.tmp')
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
+
+
+def load_upload_state(state_file=STATE_FILE):
+    """Load upload_state.json; start fresh if the file is corrupt"""
     if state_file.exists():
         try:
             with open(state_file, 'r', encoding='utf-8') as f:
                 state = json.load(f)
             if isinstance(state.get("uploads"), dict):
-                state.setdefault("golden_sources", {})
-                return state
+                return {"uploads": state["uploads"]}
         except (json.JSONDecodeError, OSError) as e:
             print(f"[警告] 進度檔 {state_file.name} 無法讀取（{e}），將重新開始記錄。")
-    return {"uploads": {}, "golden_sources": {}}
+    return {"uploads": {}}
 
 
-def save_state(state):
-    """Atomically write the progress file so a sudden interruption cannot corrupt it"""
-    tmp = STATE_FILE.with_name(STATE_FILE.name + '.tmp')
-    with open(tmp, 'w', encoding='utf-8') as f:
-        json.dump(state, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, STATE_FILE)
+def save_upload_state(state):
+    """Atomically write the upload progress file"""
+    _atomic_write(STATE_FILE, {"uploads": state["uploads"]})
+
+
+def load_convert_state(state_file=CONVERT_STATE_FILE):
+    """Load convert_state.json; fall back to legacy golden data in upload_state.json"""
+    if state_file.exists():
+        try:
+            with open(state_file, 'r', encoding='utf-8') as f:
+                state = json.load(f)
+            if isinstance(state.get("golden_sources"), dict):
+                return {"golden_sources": state["golden_sources"]}
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"[警告] 轉檔記錄 {state_file.name} 無法讀取（{e}），將重新開始記錄。")
+    elif STATE_FILE.exists():
+        try:
+            with open(STATE_FILE, 'r', encoding='utf-8') as f:
+                legacy = json.load(f)
+            goldens = legacy.get("golden_sources")
+            if isinstance(goldens, dict) and goldens:
+                print(
+                    "[提示] 從 upload_state.json 讀取舊 golden_sources；"
+                    "下次儲存會寫入 convert_state.json。"
+                )
+                return {"golden_sources": goldens}
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {"golden_sources": {}}
+
+
+def save_convert_state(state):
+    """Atomically write the conversion progress file"""
+    _atomic_write(
+        CONVERT_STATE_FILE,
+        {"golden_sources": state.get("golden_sources", {})},
+    )
 
 
 def get_entry(state, file_path):
@@ -42,29 +79,6 @@ def record_golden_source(state, golden_path, title, source_files):
     state.setdefault("golden_sources", {})[str(golden_path.resolve())] = {
         "title": title,
         "source_files": [str(path.resolve()) for path in source_files],
-    }
-
-
-def migrate_completed_entry(state, old_key, golden_path):
-    """Move a completed upload entry to the golden path and refresh its fingerprint"""
-    old = state["uploads"].get(old_key)
-    if not old:
-        return
-    parts = old.get("parts") or []
-    if not parts and old.get("video_id"):
-        parts = [{
-            "video_id": old["video_id"],
-            "playlist_added": old.get("playlist_added", False),
-            "bytes_sent": old.get("bytes_sent"),
-        }]
-    if not parts or not all(part.get("video_id") for part in parts):
-        return
-    size, mtime, _ = source_fingerprint([golden_path])
-    state["uploads"][str(golden_path.resolve())] = {
-        "parts": parts,
-        "cuts": old.get("cuts", []),
-        "size": size,
-        "mtime": mtime,
     }
 
 

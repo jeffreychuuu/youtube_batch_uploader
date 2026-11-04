@@ -7,7 +7,7 @@ from .ffmpeg import (
     verify_video,
 )
 from .golden import source_provenance_matches
-from .state import migrate_completed_entry, record_golden_source, save_state
+from .state import record_golden_source, save_convert_state
 
 
 @dataclass
@@ -35,17 +35,14 @@ def prepare_source(job, state, config):
         if not recorded:
             raise SystemExit(
                 f"[錯誤] golden 目標檔案已存在但未記錄喺 state：{target}\n"
-                "        請先檢查／移除該檔案，或還原 upload_state.json。"
+                "        請先檢查／移除該檔案，或還原 convert_state.json。"
             )
         if not source_provenance_matches(recorded, files):
             raise SystemExit(
                 f"[錯誤] golden 目標 {target} 屬於另一組來源，唔會重用。\n"
-                "        請檢查 upload_state.json 嘅 golden_sources，"
+                "        請檢查 convert_state.json 嘅 golden_sources，"
                 "或重新命名其中一個來源。"
             )
-        if golden_key not in state["uploads"]:
-            migrate_completed_entry(state, str(files[0].resolve()), target)
-            save_state(state)
         job["files"] = [target]
         job["golden"] = True
         return SourcePlan([target], golden_key, "single", True)
@@ -59,15 +56,8 @@ def prepare_source(job, state, config):
     move_converted_to_source(converted, target)
     verify_video(target)
 
-    old_key = str(files[0].resolve())
     record_golden_source(state, target, job["title"], files)
-    if golden_key not in state["uploads"]:
-        migrate_completed_entry(state, old_key, target)
-    old_entry = state["uploads"].get(old_key)
-    if old_entry is not None:
-        old_entry["golden_exported"] = True
-        old_entry["golden_source"] = golden_key
-    save_state(state)
+    save_convert_state(state)
 
     if config["remove_original_after_conversion"]:
         for source_file in files:

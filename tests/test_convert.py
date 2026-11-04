@@ -21,10 +21,10 @@ class ConvertOnlyTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             run_convert_only(config)
 
-    @patch('youtube_uploader.convert.save_state')
+    @patch('youtube_uploader.convert.save_convert_state')
     @patch('youtube_uploader.convert.prepare_source')
-    @patch('youtube_uploader.convert.load_state',
-           return_value={'uploads': {}, 'golden_sources': {}})
+    @patch('youtube_uploader.convert.load_convert_state',
+           return_value={'golden_sources': {}})
     def test_converts_only_convert_extensions(self, load_state, prepare, save):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp) / 'Folder'
@@ -39,9 +39,9 @@ class ConvertOnlyTests(unittest.TestCase):
         self.assertTrue(job['convert'])
         self.assertEqual(job['title'], 'Folder [combined]')
 
-    @patch('youtube_uploader.convert.save_state')
+    @patch('youtube_uploader.convert.save_convert_state')
     @patch('youtube_uploader.convert.prepare_source')
-    @patch('youtube_uploader.convert.load_state')
+    @patch('youtube_uploader.convert.load_convert_state')
     def test_skips_jobs_with_an_existing_golden(self, load_state, prepare, save):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp) / 'Folder'
@@ -51,7 +51,6 @@ class ConvertOnlyTests(unittest.TestCase):
             golden = folder / 'Folder [combined].mp4'
             golden.touch()
             load_state.return_value = {
-                'uploads': {},
                 'golden_sources': {
                     str(golden.resolve()): {
                         'title': 'Folder',
@@ -66,11 +65,11 @@ class ConvertOnlyTests(unittest.TestCase):
         self.assertEqual(summary, {'converted': 0, 'skipped': 1, 'failed': 0})
         prepare.assert_not_called()
 
-    @patch('youtube_uploader.convert.save_state')
+    @patch('youtube_uploader.convert.save_convert_state')
     @patch('youtube_uploader.convert.prepare_source',
            side_effect=RuntimeError('boom'))
-    @patch('youtube_uploader.convert.load_state',
-           return_value={'uploads': {}, 'golden_sources': {}})
+    @patch('youtube_uploader.convert.load_convert_state',
+           return_value={'golden_sources': {}})
     def test_counts_failures_and_continues(self, load_state, prepare, save):
         with tempfile.TemporaryDirectory() as tmp:
             for name in ('A', 'B'):

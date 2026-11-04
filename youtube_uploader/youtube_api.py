@@ -12,7 +12,7 @@ from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
 
 from .config import CLIENT_SECRETS_FILE, TOKEN_PICKLE_FILE
-from .state import format_bytes, save_state
+from .state import format_bytes, save_upload_state
 
 # Scopes required for uploading and managing playlists
 SCOPES = [
@@ -169,7 +169,7 @@ def upload_video(youtube, media_path, title, display_name, config, entry, state)
                 request._in_error_state = False
                 entry.pop("resumable_uri", None)
                 entry["bytes_sent"] = 0
-                save_state(state)
+                save_upload_state(state)
                 continue
             if code in RETRYABLE_STATUS and retries < config["max_retries"]:
                 retries += 1
@@ -180,7 +180,7 @@ def upload_video(youtube, media_path, title, display_name, config, entry, state)
                 continue
             entry["resumable_uri"] = request.resumable_uri
             entry["bytes_sent"] = request.resumable_progress
-            save_state(state)
+            save_upload_state(state)
             raise
         except (httplib2.HttpLib2Error, OSError) as e:
             # Temporary network drop: save progress and retry; the session is still valid
@@ -190,19 +190,19 @@ def upload_video(youtube, media_path, title, display_name, config, entry, state)
                 print(f"\n  [重試] 網絡錯誤（{e}），{wait} 秒後重試（第 {retries} 次）...")
                 entry["resumable_uri"] = request.resumable_uri
                 entry["bytes_sent"] = request.resumable_progress
-                save_state(state)
+                save_upload_state(state)
                 request._in_error_state = True
                 time.sleep(wait)
                 continue
             entry["resumable_uri"] = request.resumable_uri
             entry["bytes_sent"] = request.resumable_progress
-            save_state(state)
+            save_upload_state(state)
             raise
 
         # Save progress after every chunk so a forced termination can still resume
         entry["resumable_uri"] = request.resumable_uri
         entry["bytes_sent"] = request.resumable_progress
-        save_state(state)
+        save_upload_state(state)
 
         if status:
             total = media.size() or 0
@@ -220,6 +220,6 @@ def upload_video(youtube, media_path, title, display_name, config, entry, state)
         "bytes_sent": media.size(),
         "upload_size": media.size(),
     })
-    save_state(state)
+    save_upload_state(state)
     print(f"  [完成] 影片 ID: {video_id} -> https://youtu.be/{video_id}")
     return video_id

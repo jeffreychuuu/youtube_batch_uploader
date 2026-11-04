@@ -9,6 +9,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 CLIENT_SECRETS_FILE = BASE_DIR / 'client_secrets.json'
 TOKEN_PICKLE_FILE = BASE_DIR / 'token.pickle'
 STATE_FILE = BASE_DIR / 'upload_state.json'
+CONVERT_STATE_FILE = BASE_DIR / 'convert_state.json'
 CUTS_FILE = BASE_DIR / 'cuts.json'
 CONVERT_CONFIG_FILE = BASE_DIR / 'convert_config.json'
 UPLOAD_CONFIG_FILE = BASE_DIR / 'upload_config.json'

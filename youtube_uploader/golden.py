@@ -60,7 +60,7 @@ def skip_converted_source_jobs(jobs, state):
             raise SystemExit(
                 f"[錯誤] golden 目標 {target} 已記錄畀另一組來源，"
                 f"唔會跳過 {job['display_name']}。\n"
-                "        請檢查 upload_state.json 嘅 golden_sources，"
+                "        請檢查 convert_state.json 嘅 golden_sources，"
                 "或重新命名其中一個來源。"
             )
         job["skip_reason"] = "golden"

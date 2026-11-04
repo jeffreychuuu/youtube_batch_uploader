@@ -248,7 +248,7 @@ python3 convert_and_upload.py
 python3 convert_only.py
 ```
 
-呢條路徑**永遠唔會**進行 YouTube 授權、亦唔會上傳。只需要 `convert_config.json`，唔需要 `upload_config.json`。需要 `export_converted_source: true`。佢會將所有 `convert_extensions` 入面嘅 job 轉檔，跟隨 `remove_original_after_conversion` / `remove_original_permanent` 決定要唔要移走原檔，跳過已經有 golden source 嘅檔案，最後印出成功／跳過／失敗數量。Cuts 喺呢個模式會被忽略；golden source 一定係完整未剪版本。
+呢條路徑**永遠唔會**進行 YouTube 授權、亦唔會上傳。只需要 `convert_config.json`，唔需要 `upload_config.json`。轉檔記錄會寫入 `convert_state.json`（同 `upload_state.json` 分開）。需要 `export_converted_source: true`。佢會將所有 `convert_extensions` 入面嘅 job 轉檔，跟隨 `remove_original_after_conversion` / `remove_original_permanent` 決定要唔要移走原檔，跳過已經有 golden source 嘅檔案，最後印出成功／跳過／失敗數量。Cuts 喺呢個模式會被忽略；golden source 一定係完整未剪版本。
 
 ### 3.4 關於「草稿」與發佈
 
@@ -293,9 +293,9 @@ YouTube API **沒有「草稿」概念**，上傳完成後影片即會以 `priva
 
 ## 4. 斷點續傳與進度記錄
 
-### 4.1 `upload_state.json`
+### 4.1 `upload_state.json` 與 `convert_state.json`
 
-Script 會在同一資料夾產生 `upload_state.json`，記錄每條影片：
+上傳 script 會在同一資料夾產生 `upload_state.json`，記錄每條已上傳影片。轉檔進度（golden source index）會分開存放喺 `convert_state.json`，令 convert 同 upload script 完全獨立：
 
 ```json
 {
@@ -438,6 +438,7 @@ youtube_batch_uploader/
 ├── client_secrets.json   # OAuth 憑證（自行下載，請勿分享）
 ├── token.pickle          # 登入 token（首次執行後產生，請勿分享）
 ├── upload_state.json     # 上傳進度記錄（自動產生）
+├── convert_state.json    # 轉檔 golden source 記錄（自動產生）
 ├── cuts.json             # 本機 cut-list（不會 commit）
 ├── cuts.example.json     # cut-list 範例
 ├── .converted/           # ffmpeg 轉檔暫存（自動產生，可安全刪除）

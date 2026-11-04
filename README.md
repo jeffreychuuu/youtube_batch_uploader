@@ -248,7 +248,7 @@ To prepare golden MP4s without uploading anything, run:
 python3 convert_only.py
 ```
 
-This path never authenticates with YouTube and never uploads. It reads `convert_config.json` only; `upload_config.json` is not needed. It requires `export_converted_source: true`. It converts every job whose extension is in `convert_extensions`, respects `remove_original_after_conversion` / `remove_original_permanent`, skips files that already have a golden source, and prints a converted/skipped/failed summary. Cuts are ignored here; the golden source is always the uncut full video.
+This path never authenticates with YouTube and never uploads. It reads `convert_config.json` only; `upload_config.json` is not needed. It records converted sources in `convert_state.json` (separate from `upload_state.json`). It requires `export_converted_source: true`. It converts every job whose extension is in `convert_extensions`, respects `remove_original_after_conversion` / `remove_original_permanent`, skips files that already have a golden source, and prints a converted/skipped/failed summary. Cuts are ignored here; the golden source is always the uncut full video.
 
 ### 3.4 "Draft" and publishing
 
@@ -292,9 +292,9 @@ Notes:
 
 ## 4. Resumable Uploads and Progress Tracking
 
-### 4.1 `upload_state.json`
+### 4.1 `upload_state.json` and `convert_state.json`
 
-The script creates `upload_state.json` in the same folder, recording each video:
+The upload script creates `upload_state.json` in the same folder, recording each uploaded video. Conversion progress (the golden source index) lives separately in `convert_state.json`, so the convert and upload scripts stay independent:
 
 ```json
 {
@@ -437,6 +437,7 @@ youtube_batch_uploader/
 ├── client_secrets.json   # OAuth credentials (download yourself, never share)
 ├── token.pickle          # Login token (created on first run, never share)
 ├── upload_state.json     # Upload progress record (created automatically)
+├── convert_state.json    # Golden source index for conversion (created automatically)
 ├── cuts.json             # Local cut-list for flagged videos (not committed)
 ├── cuts.example.json     # Cut-list example
 ├── .converted/           # Temporary MP4 conversions (created automatically, safe to delete)

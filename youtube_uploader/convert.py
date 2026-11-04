@@ -7,7 +7,7 @@ from .golden import (
     skip_converted_source_jobs,
 )
 from .pipeline import prepare_source
-from .state import load_state, save_state
+from .state import load_convert_state, save_convert_state
 
 
 def run_convert_only(config):
@@ -32,7 +32,7 @@ def run_convert_only(config):
         return {"converted": 0, "skipped": 0, "failed": 0}
     ensure_unique_converted_targets(jobs)
 
-    state = load_state()
+    state = load_convert_state()
     mark_golden_jobs(jobs, state)
     skipped_sources = skip_converted_source_jobs(jobs, state)
 
@@ -55,7 +55,7 @@ def run_convert_only(config):
             converted += 1
         except KeyboardInterrupt:
             print("\n\n[已中斷] 進度已儲存。")
-            save_state(state)
+            save_convert_state(state)
             return {
                 "converted": converted, "skipped": skipped, "failed": failed,
             }
@@ -63,7 +63,7 @@ def run_convert_only(config):
             print(f"  [例外錯誤] {job['display_name']}: {error}")
             failed += 1
 
-    save_state(state)
+    save_convert_state(state)
     print(
         f"\n[轉檔完成] 成功 {converted}，跳過 {skipped}，失敗 {failed}"
     )

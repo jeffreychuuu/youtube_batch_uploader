@@ -21,7 +21,10 @@ from .pipeline import (
     prepare_source,
     should_remove_sources,
 )
-from .state import get_entry, is_same_source, load_state, refresh_entry, save_state
+from .state import (
+    get_entry, is_same_source, load_convert_state, load_upload_state,
+    refresh_entry, save_upload_state,
+)
 from .youtube_api import (
     add_video_to_playlist,
     get_authenticated_service,
@@ -62,9 +65,10 @@ def main(config=None):
         f"[掃描完成] 共找到 {len(video_files)} 個影片檔案，"
         f"合併為 {len(jobs)} 個上傳項目。"
     )
-    state = load_state()
+    state = load_upload_state()
+    convert_state = load_convert_state()
     cuts_map = load_cuts()
-    mark_golden_jobs(jobs, state)
+    mark_golden_jobs(jobs, convert_state)
     _ensure_unique_job_keys(jobs, cuts_map)
     used_cut_keys = set()
     for job in jobs:
@@ -87,7 +91,7 @@ def main(config=None):
     for idx, job in enumerate(jobs, start=1):
         print(f"\n處理第 [{idx}/{len(jobs)}] 部影片...")
         try:
-            plan = prepare_source(job, state, config)
+            plan = prepare_source(job, convert_state, config)
             files = plan.files
             key = plan.key
             entry = state["uploads"].get(key)
@@ -111,21 +115,21 @@ def main(config=None):
                 entry = get_entry(state, files[0])
                 refresh_entry(entry, files)
                 apply_entry_settings(entry, cuts)
-                save_state(state)
+                save_upload_state(state)
             elif not is_same_source(entry, files):
                 print(f"[變更] 檔案已修改，重新處理：{job['display_name']}")
                 print_old_video_links(entry)
                 remove_cached_conversion(files, stored_cuts_norm)
                 refresh_entry(entry, files)
                 apply_entry_settings(entry, cuts)
-                save_state(state)
+                save_upload_state(state)
             elif cuts_added_or_changed:
                 print(f"[變更] cut 範圍已更新，重新處理：{job['display_name']}")
                 print_old_video_links(entry)
                 remove_cached_conversion(files, stored_cuts_norm)
                 refresh_entry(entry, files)
                 apply_entry_settings(entry, cuts)
-                save_state(state)
+                save_upload_state(state)
             elif cuts_removed:
                 if not completed:
                     print(
@@ -135,11 +139,11 @@ def main(config=None):
                     )
                     continue
                 entry["cuts"] = []
-                save_state(state)
+                save_upload_state(state)
             else:
                 if "cuts" not in entry:
                     entry["cuts"] = cuts_for_state(cuts)
-                    save_state(state)
+                    save_upload_state(state)
 
             # Migrate entries written by older versions that had one video per job
             if "parts" not in entry:
@@ -156,7 +160,7 @@ def main(config=None):
                     "resumable_uri", "upload_size",
                 ):
                     entry.pop(field, None)
-                save_state(state)
+                save_upload_state(state)
 
             parts_state = entry["parts"]
             all_done = bool(parts_state) and all(
@@ -171,7 +175,7 @@ def main(config=None):
                 if len(parts_state) != len(media_parts):
                     parts_state = [{} for _ in media_parts]
                     entry["parts"] = parts_state
-                    save_state(state)
+                    save_upload_state(state)
 
                 for media_path in media_parts:
                     part_entry = parts_state[0]
@@ -196,7 +200,7 @@ def main(config=None):
                 ):
                     add_video_to_playlist(youtube, playlist_id, part_entry["video_id"])
                     part_entry["playlist_added"] = True
-                    save_state(state)
+                    save_upload_state(state)
 
             all_done = bool(parts_state) and all(
                 part.get("video_id") for part in parts_state
@@ -221,7 +225,7 @@ def main(config=None):
                         all_removed = False
                 if all_removed:
                     entry["local_removed"] = True
-                    save_state(state)
+                    save_upload_state(state)
         except KeyboardInterrupt:
             print("\n\n[已中斷] 進度已儲存，下次執行會自動續傳。")
             return

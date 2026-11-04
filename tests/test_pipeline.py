@@ -28,7 +28,7 @@ class PrepareSourceTests(unittest.TestCase):
         self.assertEqual(plan.mode, 'single')
         self.assertEqual(plan.files, [Path('/a/Clip.mp4')])
 
-    @patch('youtube_uploader.pipeline.save_state')
+    @patch('youtube_uploader.pipeline.save_convert_state')
     @patch('youtube_uploader.pipeline.move_converted_to_source')
     @patch('youtube_uploader.pipeline.verify_video')
     @patch('youtube_uploader.pipeline.convert_to_mp4',
@@ -58,7 +58,7 @@ class PrepareSourceTests(unittest.TestCase):
         self.assertIn(str(target.resolve()), state['golden_sources'])
         save.assert_called_once_with(state)
 
-    @patch('youtube_uploader.pipeline.save_state')
+    @patch('youtube_uploader.pipeline.save_convert_state')
     @patch('youtube_uploader.pipeline.verify_video')
     @patch('youtube_uploader.pipeline.convert_to_mp4')
     @patch('youtube_uploader.pipeline.converted_source_path')
@@ -90,7 +90,7 @@ class PrepareSourceTests(unittest.TestCase):
         self.assertTrue(plan.golden)
         convert.assert_not_called()
 
-    @patch('youtube_uploader.pipeline.save_state')
+    @patch('youtube_uploader.pipeline.save_convert_state')
     @patch('youtube_uploader.pipeline.verify_video')
     @patch('youtube_uploader.pipeline.convert_to_mp4')
     @patch('youtube_uploader.pipeline.converted_source_path')
@@ -122,7 +122,7 @@ class PrepareSourceTests(unittest.TestCase):
         self.assertTrue(plan.golden)
         convert.assert_not_called()
 
-    @patch('youtube_uploader.pipeline.save_state')
+    @patch('youtube_uploader.pipeline.save_convert_state')
     @patch('youtube_uploader.pipeline.verify_video')
     @patch('youtube_uploader.pipeline.convert_to_mp4')
     @patch('youtube_uploader.pipeline.converted_source_path')
@@ -156,7 +156,7 @@ class PrepareSourceTests(unittest.TestCase):
                 })
         convert.assert_not_called()
 
-    @patch('youtube_uploader.pipeline.save_state')
+    @patch('youtube_uploader.pipeline.save_convert_state')
     @patch('youtube_uploader.pipeline.convert_to_mp4')
     @patch('youtube_uploader.pipeline.converted_source_path')
     def test_unrecorded_existing_target_stops(self, path_mock, convert, save):
@@ -177,7 +177,7 @@ class PrepareSourceTests(unittest.TestCase):
         convert.assert_not_called()
 
     @patch('youtube_uploader.pipeline.remove_cached_conversion')
-    @patch('youtube_uploader.pipeline.save_state')
+    @patch('youtube_uploader.pipeline.save_convert_state')
     @patch('youtube_uploader.pipeline.verify_video',
            side_effect=RuntimeError('bad output'))
     @patch('youtube_uploader.pipeline.convert_to_mp4',
@@ -198,7 +198,7 @@ class PrepareSourceTests(unittest.TestCase):
                 })
         remove.assert_called_once_with(sources)
 
-    @patch('youtube_uploader.pipeline.save_state')
+    @patch('youtube_uploader.pipeline.save_convert_state')
     @patch('youtube_uploader.pipeline.remove_local_file')
     @patch('youtube_uploader.pipeline.move_converted_to_source')
     @patch('youtube_uploader.pipeline.verify_video')
@@ -296,7 +296,7 @@ class GoldenSmokeTests(unittest.TestCase):
                 'remove_original_permanent': False,
             }
             try:
-                with patch('youtube_uploader.pipeline.save_state'):
+                with patch('youtube_uploader.pipeline.save_convert_state'):
                     plan = prepare_source(job, state, config)
                 target = Path(tmp) / 'Source.mp4'
                 self.assertTrue(target.exists())

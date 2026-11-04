@@ -12,6 +12,8 @@ upload_config.json
 # ===== 本機上傳進度（包含本機路徑及影片 ID）=====
 upload_state.json
 upload_state.json.tmp
+convert_state.json
+convert_state.json.tmp
 
 # ===== 影片剪輯清單（包含個人影片標題）=====
 cuts.json
