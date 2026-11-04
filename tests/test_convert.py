@@ -39,7 +39,7 @@ class ConvertOnlyTests(unittest.TestCase):
         self.assertEqual(prepare.call_count, 1)
         job = prepare.call_args.args[0]
         self.assertTrue(job['convert'])
-        self.assertEqual(job['title'], 'Folder')
+        self.assertEqual(job['title'], 'Folder [combined]')
 
     @patch('youtube_uploader.convert.save_state')
     @patch('youtube_uploader.convert.prepare_source')
@@ -50,7 +50,7 @@ class ConvertOnlyTests(unittest.TestCase):
             folder.mkdir()
             (folder / 'VTS_01_1.VOB').touch()
             (folder / 'VTS_01_2.VOB').touch()
-            golden = folder / 'Folder.mp4'
+            golden = folder / 'Folder [combined].mp4'
             golden.touch()
             load_state.return_value = {
                 'uploads': {},

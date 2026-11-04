@@ -29,7 +29,7 @@ class BuildUploadJobsTests(unittest.TestCase):
 
             self.assertEqual(len(jobs), 1)
             self.assertEqual(jobs[0]['files'], files)
-            self.assertEqual(jobs[0]['title'], 'My Video')
+            self.assertEqual(jobs[0]['title'], 'My Video [combined]')
             self.assertTrue(jobs[0]['convert'])
 
     def test_non_converted_files_are_single_jobs(self):
@@ -84,7 +84,7 @@ class CombineModeTests(unittest.TestCase):
             )
 
             self.assertEqual(len(jobs), 1)
-            self.assertEqual(jobs[0]['title'], 'Folder')
+            self.assertEqual(jobs[0]['title'], 'Folder [combined]')
             self.assertEqual(
                 jobs[0]['files'], [folder / 'a.m2ts', folder / 'b.m2ts']
             )
@@ -103,7 +103,7 @@ class CombineModeTests(unittest.TestCase):
             )
 
             self.assertEqual(len(jobs), 1)
-            self.assertEqual(jobs[0]['title'], 'Folder')
+            self.assertEqual(jobs[0]['title'], 'Folder [combined]')
 
     def test_vob_mode_ignores_other_extensions(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -139,7 +139,7 @@ class CombineModeTests(unittest.TestCase):
 
             self.assertEqual(
                 sorted(job['title'] for job in jobs),
-                ['Folder (AVI)', 'Folder (M2TS)'],
+                ['Folder (AVI) [combined]', 'Folder (M2TS) [combined]'],
             )
 
     def test_folder_mode_ignores_unlisted_extensions(self):
@@ -156,6 +156,42 @@ class CombineModeTests(unittest.TestCase):
             )
 
             self.assertEqual(len(jobs), 2)
+
+
+    def test_custom_combined_name_overrides_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / 'Folder'
+            folder.mkdir()
+            files = [folder / 'VTS_01_1.VOB', folder / 'VTS_01_2.VOB']
+            for path in files:
+                path.touch()
+
+            jobs = build_upload_jobs(
+                files, {'.vob'}, combined_names={'Folder': 'My Custom'},
+            )
+
+            self.assertEqual(jobs[0]['title'], 'My Custom')
+
+    def test_custom_name_uses_group_suffix_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / 'Folder'
+            folder.mkdir()
+            files = [
+                folder / 'a.m2ts', folder / 'b.m2ts',
+                folder / 'c.avi', folder / 'd.avi',
+            ]
+            for path in files:
+                path.touch()
+
+            jobs = build_upload_jobs(
+                files, {'.m2ts', '.avi'},
+                combine_mode='folder',
+                combine_extensions=['.m2ts', '.avi'],
+                combined_names={'Folder (M2TS)': 'Custom M2TS'},
+            )
+
+            titles = sorted(job['title'] for job in jobs)
+            self.assertEqual(titles, ['Custom M2TS', 'Folder (AVI) [combined]'])
 
 
 class ConvertedSourcePathTests(unittest.TestCase):

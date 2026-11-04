@@ -27,6 +27,7 @@ def run_convert_only(config):
         convert_extensions,
         config["combine_mode"],
         config["combine_extensions"],
+        config.get("combined_names"),
     )
     if not jobs:
         print(f"[提示] 在 {config['root_folder']} 內找不到相容的影片檔案。")

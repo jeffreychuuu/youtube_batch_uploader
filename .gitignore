@@ -6,6 +6,8 @@ token.pickle
 
 # ===== 本機設定（包含個人影片路徑）=====
 config.json
+convert_config.json
+upload_config.json
 
 # ===== 本機上傳進度（包含本機路徑及影片 ID）=====
 upload_state.json

@@ -160,89 +160,116 @@ If YouTube flags a video and gives time ranges to remove, create `cuts.json` nex
 
 ### 3.1 Edit the configuration
 
-Copy `config.example.json` to `config.json`, then edit the settings:
+Settings are split into two files. Copy both examples, then edit them:
 
 ```bash
-cp config.example.json config.json
+cp convert_config.example.json convert_config.json
+cp upload_config.example.json upload_config.json
 ```
+
+**`convert_config.json`** — what to scan and how to build golden MP4s:
 
 ```json
 {
   "root_folder": "/path/to/your/videos",
-  "playlist_name": "My Playlist",
-  "privacy_status": "unlisted",
-  "made_for_kids": false,
   "video_extensions": [".mp4", ".mov", ".mkv", ".avi", ".m4v", ".vob"],
   "convert_extensions": [".vob"],
   "combine_mode": "vob",
   "combine_extensions": [".vob"],
-  "part_duration_hours": 1,
-  "chunk_size_mb": 32,
-  "max_retries": 5,
-  "remove_local_after_upload": false,
-  "remove_local_permanent": false,
+  "combined_names": {
+    "My Video": "1995-1996 Family"
+  },
   "export_converted_source": false,
   "remove_original_after_conversion": false,
   "remove_original_permanent": false
 }
 ```
 
-`config.json` is listed in `.gitignore` and **will not be committed**; you can safely use your own paths even after forking this repo. If `config.json` is missing, the script uses the built-in defaults.
-
 | Setting | Description |
 |---|---|
 | `root_folder` | Source folder for videos; all subfolders are scanned recursively |
-| `playlist_name` | Target playlist name; created automatically if it does not exist. Set to `""` to skip adding to a playlist |
-| `privacy_status` | `public` / `unlisted` (visible via link) / `private` |
-| `made_for_kids` | `True` = content made for kids; `False` = not made for kids |
 | `video_extensions` | Extensions to scan |
 | `convert_extensions` | Extensions transcoded to MP4 with ffmpeg before upload (default `[".vob"]`); add `".avi"` to force AVI transcoding. This only controls conversion — cuts are accepted for every format |
 | `combine_mode` | `"vob"` (default) merges VOB title sets only; `"folder"` also merges every file of a `combine_extensions` extension in the same folder, in natural order; `"none"` makes every file its own job |
 | `combine_extensions` | Extensions eligible for combining in `"folder"` mode (default `[".vob"]`). Every entry must also be in `convert_extensions` |
+| `combined_names` | Per-folder custom name for a combined video. The key is the group title before the suffix (for example `My Video`, or `Family (VTS_01)` / `Family (M2TS)` when a folder has multiple groups). Unlisted groups use `<folder> [combined]` |
+| `export_converted_source` | `true` = keep the converted MP4 next to the source (or its `VIDEO_TS` parent) and reuse it as the source of record |
+| `remove_original_after_conversion` | `true` = remove the original files after the converted MP4 is verified (requires `export_converted_source`) |
+| `remove_original_permanent` | Removal method for conversion-time cleanup: `false` = move to Trash (default) / `true` = delete permanently |
+
+**`upload_config.json`** — how to scan, split and publish (fully independent):
+
+```json
+{
+  "root_folder": "/path/to/your/videos",
+  "video_extensions": [".mp4", ".mov", ".mkv", ".avi", ".m4v", ".vob"],
+  "convert_extensions": [".vob"],
+  "playlist_name": "My Playlist",
+  "privacy_status": "unlisted",
+  "made_for_kids": false,
+  "part_duration_hours": 1,
+  "chunk_size_mb": 32,
+  "max_retries": 5,
+  "remove_local_after_upload": false,
+  "remove_local_permanent": false
+}
+```
+
+| Setting | Description |
+|---|---|
+| `root_folder` | Source folder for uploads; scanned independently from the convert config |
+| `video_extensions` | Extensions to scan for uploads |
+| `convert_extensions` | Formats that must be converted first; the upload script skips them with a message to run `convert_only.py` |
+| `playlist_name` | Target playlist name; created automatically if it does not exist. Set to `""` to skip adding to a playlist |
+| `privacy_status` | `public` / `unlisted` (visible via link) / `private` |
+| `made_for_kids` | `True` = content made for kids; `False` = not made for kids |
 | `part_duration_hours` | Length of each part in hours (default `1`; `0` = never split). Applies to **every** upload, including MP4/MOV/AVI. Set `0.25` for unverified accounts (15-minute limit) |
 | `chunk_size_mb` | Size of each upload chunk; must be a multiple of 256 KB. 16–32 recommended for large files |
 | `max_retries` | Maximum retries per chunk on network errors / 5xx |
 | `remove_local_after_upload` | `true` = remove the local source after a successful upload; `false` = keep it (default). Golden files are never removed |
 | `remove_local_permanent` | Removal method for post-upload cleanup: `false` = move to Trash (recoverable, default) / `true` = delete permanently (irreversible) |
-| `export_converted_source` | `true` = keep the converted MP4 next to the source (or its `VIDEO_TS` parent) and reuse it as the source of record |
-| `remove_original_after_conversion` | `true` = remove the original files after the converted MP4 is verified (requires `export_converted_source`) |
-| `remove_original_permanent` | Removal method for conversion-time cleanup: `false` = move to Trash (default) / `true` = delete permanently. Independent of `remove_local_permanent` |
 
-**Combining files.** `combine_mode` decides which files are merged before conversion. `"vob"` keeps the DVD title-set behavior. `"folder"` merges every file of a `combine_extensions` extension in the same folder (for example `.m2ts` segments), in natural order. `"none"` makes every file its own upload. A combined group produces one golden MP4 and one upload (split by `part_duration_hours`); with `"none"`, each source file gets its own title, golden MP4 and upload.
+Both files are listed in `.gitignore` and **will not be committed**; you can safely use your own paths even after forking this repo. They are **fully independent**: `upload_config.json` never reads `convert_config.json`. Missing files fall back to the built-in defaults.
+
+**Combining files.** `combine_mode` decides which files are merged before conversion. `"vob"` keeps the DVD title-set behavior. `"folder"` merges every file of a `combine_extensions` extension in the same folder (for example `.m2ts` segments), in natural order. `"none"` makes every file its own upload. A combined group is named `<folder> [combined]` unless `combined_names` overrides it, and produces one golden MP4 and one upload (split by `part_duration_hours`); with `"none"`, each source file gets its own title, golden MP4 and upload.
 
 **Converted sources and golden files.** When `export_converted_source` is enabled, a converted file becomes a *golden source*: later runs cut, split and upload from it instead of re-reading the originals. Cut-free uploads are split with stream copy (fast, no re-encode); uploads with cuts are re-encoded. `remove_original_after_conversion` is the only setting that removes the original files at conversion time — `remove_local_after_upload` never removes a golden file. A golden job keeps the cuts namespace of its source (`folders` for merged VOB jobs, `files` for single-file jobs), so existing `cuts.json` keys keep working after conversion. Two sources that would write the same golden file stop the run instead of overwriting.
 
 ### 3.2 Run
 
+Upload existing golden/direct files (no conversion):
+
 ```bash
 cd /path/to/youtube_batch_uploader
-python batch_upload.py
-```
-
-If the system has no `python` command:
-
-```bash
 python3 batch_upload.py
 ```
 
-The run will:
+This run will:
 
-1. Scan the folder, merge multi-segment VOB files, and report how many upload items were found
-2. Open the browser for OAuth authorization (first run only)
-3. Find or create the playlist
-4. Convert VOB files to MP4 and split long videos into parts with ffmpeg (if configured)
-5. Upload each video (or part) one by one, showing a progress percentage
+1. Scan `root_folder` and report how many upload items were found
+2. Skip sources that still need conversion (`convert_extensions`) with a message to run `convert_only.py`
+3. Open the browser for OAuth authorization (first run only)
+4. Find or create the playlist
+5. Cut and split the golden/direct files with ffmpeg, then upload each part one by one
 6. Add each uploaded video to the playlist
+
+To convert first, run `python3 convert_only.py` (section 3.3). To do both with one command:
+
+```bash
+python3 convert_and_upload.py
+```
+
+That runs conversion with `convert_config.json`, then upload with `upload_config.json`.
 
 ### 3.3 Convert only (no upload)
 
-To prepare golden MP4s without uploading anything, run the conversion-only entry point:
+To prepare golden MP4s without uploading anything, run:
 
 ```bash
 python3 convert_only.py
 ```
 
-This path never authenticates with YouTube and never uploads. It requires `export_converted_source: true` in `config.json`. It converts every job whose extension is in `convert_extensions`, respects `remove_original_after_conversion` / `remove_original_permanent`, skips files that already have a golden source, and prints a converted/skipped/failed summary. Cuts and `part_duration_hours` are ignored here; the golden source is always the uncut full video.
+This path never authenticates with YouTube and never uploads. It reads `convert_config.json` only; `upload_config.json` is not needed. It requires `export_converted_source: true`. It converts every job whose extension is in `convert_extensions`, respects `remove_original_after_conversion` / `remove_original_permanent`, skips files that already have a golden source, and prints a converted/skipped/failed summary. Cuts and `part_duration_hours` are ignored here; the golden source is always the uncut full video.
 
 ### 3.4 "Draft" and publishing
 
@@ -256,7 +283,7 @@ The YouTube API **has no concept of a "draft"**: once an upload completes, the v
 
 ### 3.5 Automatic local cleanup after upload
 
-Set the following in `config.json`:
+Set the following in `upload_config.json`:
 
 ```json
 "remove_local_after_upload": true,
@@ -375,7 +402,7 @@ Without ffmpeg, VOB jobs fail with an error but other formats still upload norma
 
 ### AVI upload fails or plays incorrectly
 
-AVI is officially supported by YouTube, but some codecs found inside AVI files are not. Add `".avi"` to `convert_extensions` in `config.json`; the script will transcode AVI to MP4 (H.264/AAC) before uploading.
+AVI is officially supported by YouTube, but some codecs found inside AVI files are not. Add `".avi"` to `convert_extensions` in `convert_config.json`; the script will transcode AVI to MP4 (H.264/AAC) before uploading.
 
 ### VOB conversion is slow or uses a lot of disk space
 
@@ -383,7 +410,7 @@ Merging and re-encoding DVD video is CPU-intensive. The result is cached in `.co
 
 ### Upload is rejected because the video is too long
 
-Unverified YouTube accounts can only upload videos up to 15 minutes. Either verify your account at <https://www.youtube.com/verify>, or set `"part_duration_hours": 0.25` in `config.json` to split every 15 minutes. Verified accounts can upload up to 12 hours / 256 GB per video.
+Unverified YouTube accounts can only upload videos up to 15 minutes. Either verify your account at <https://www.youtube.com/verify>, or set `"part_duration_hours": 0.25` in `upload_config.json` to split every 15 minutes. Verified accounts can upload up to 12 hours / 256 GB per video.
 
 ### Videos were split into more parts than expected
 
@@ -415,18 +442,25 @@ Warnings such as Python 3.9 being past end-of-life or urllib3 using LibreSSL do 
 
 ```text
 youtube_batch_uploader/
-├── batch_upload.py       # Entry point (python3 batch_upload.py)
+├── batch_upload.py       # Upload entry point (python3 batch_upload.py)
+├── convert_only.py       # Convert entry point (python3 convert_only.py)
+├── convert_and_upload.py # Convert then upload in one command
 ├── youtube_uploader/     # Implementation package
 │   ├── cli.py            # Upload flow and job orchestration
-│   ├── config.py         # config.json loading and file paths
+│   ├── convert.py        # Conversion-only flow
+│   ├── golden.py         # Golden source detection and coexistence
+│   ├── pipeline.py       # Source preparation and part selection
+│   ├── config.py         # convert/upload config loading and file paths
 │   ├── cuts.py           # cuts.json parsing and part offsets
 │   ├── state.py          # upload_state.json tracking
-│   ├── files.py          # Scanning, VOB grouping and local cleanup
+│   ├── files.py          # Scanning, grouping and local cleanup
 │   ├── ffmpeg.py         # Probing, conversion, splitting and cache
 │   └── youtube_api.py    # OAuth, playlists and resumable uploads
 ├── tests/                # Unit tests (python3 -m unittest)
-├── config.example.json   # Example configuration (committed)
-├── config.json           # Your local configuration (not committed)
+├── convert_config.example.json # Example convert settings (committed)
+├── upload_config.example.json  # Example upload settings (committed)
+├── convert_config.json   # Your local convert settings (not committed)
+├── upload_config.json    # Your local upload settings (not committed)
 ├── client_secrets.json   # OAuth credentials (download yourself, never share)
 ├── token.pickle          # Login token (created on first run, never share)
 ├── upload_state.json     # Upload progress record (created automatically)

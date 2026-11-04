@@ -4,7 +4,7 @@ import sys
 
 from googleapiclient.errors import HttpError
 
-from .config import load_config
+from .config import load_upload_config
 from .cuts import (
     apply_entry_settings,
     cut_entry_exists,
@@ -19,15 +19,13 @@ from .cuts import (
 )
 from .ffmpeg import remove_cached_conversion
 from .files import build_upload_jobs, remove_local_file, scan_video_files
-from .golden import (
-    ensure_unique_converted_targets, mark_golden_jobs,
-    skip_converted_source_jobs,
-)
+from .golden import mark_golden_jobs, skip_converted_source_jobs
 from .pipeline import (
     cleanup_plan_cache,
     media_parts_for_plan,
     prepare_source,
     should_remove_sources,
+    skip_unconverted_jobs,
 )
 from .state import get_entry, is_same_source, load_state, refresh_entry, save_state
 from .youtube_api import (
@@ -60,8 +58,9 @@ def _ensure_unique_job_keys(jobs, cuts_map):
         seen.setdefault(marker, job)
 
 
-def main():
-    config = load_config()
+def main(config=None):
+    if config is None:
+        config = load_upload_config()
     chunk_bytes = config["chunk_size_mb"] * 1024 * 1024
     if chunk_bytes % (256 * 1024) != 0:
         sys.exit("[錯誤] chunk_size_mb 換算後必須是 256KB 的整數倍。")
@@ -71,13 +70,11 @@ def main():
     jobs = build_upload_jobs(
         video_files,
         convert_extensions,
-        config["combine_mode"],
-        config["combine_extensions"],
+        combine_mode='none',
     )
     if not jobs:
         print(f"[提示] 在 {config['root_folder']} 內找不到相容的影片檔案。")
         return
-    ensure_unique_converted_targets(jobs)
 
     print(
         f"[掃描完成] 共找到 {len(video_files)} 個影片檔案，"
@@ -100,6 +97,10 @@ def main():
             "[錯誤] 有 golden source 記錄，但喺掃描範圍搵唔到對應 MP4；"
             "請確認 root_folder 包含 golden 檔案。"
         )
+    jobs = skip_unconverted_jobs(jobs)
+    if not jobs:
+        print("[提示] 沒有可上傳的影片（請先執行 convert_only.py 轉檔）。")
+        return
     _ensure_unique_job_keys(jobs, cuts_map)
     part_hours = config["part_duration_hours"]
     used_cut_keys = set()

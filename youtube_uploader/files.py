@@ -44,11 +44,19 @@ def converted_source_path(job):
     return folder / f"{job['title']}.mp4"
 
 
+def _combined_title(base, combined_names):
+    """Custom combined name if configured, else '<base> [combined]'"""
+    if combined_names and base in combined_names:
+        return combined_names[base]
+    return f"{base} [combined]"
+
+
 def build_upload_jobs(
     video_files,
     convert_extensions,
     combine_mode='vob',
     combine_extensions=None,
+    combined_names=None,
 ):
     """Turn scanned files into upload jobs, optionally merging segments.
 
@@ -58,8 +66,9 @@ def build_upload_jobs(
       same folder, in natural order.
     - "none": every file is its own job.
 
-    `combine_extensions` limits which extensions may be grouped. DVD menu
-    files (*_0.VOB and VIDEO_TS.VOB) are always skipped.
+    `combine_extensions` limits which extensions may be grouped.
+    `combined_names` maps a group title (before the "[combined]" suffix) to a
+    custom name. DVD menu files (*_0.VOB and VIDEO_TS.VOB) are always skipped.
     """
     if combine_extensions is None:
         combine_extensions = ['.vob']
@@ -179,6 +188,7 @@ def build_upload_jobs(
                 if folder_counts[folder] > 1:
                     # Multiple groups in one folder: keep the titles distinct
                     title = f"{title} ({group['prefix']})"
+                title = _combined_title(title, combined_names)
             else:
                 title = files[0].stem
 
@@ -196,13 +206,19 @@ def build_upload_jobs(
             continue
 
         files = sorted(group["files"], key=natural_sort_key)
-        title = folder_display_name(folder)
-        if folder_counts[folder] > 1:
-            extension = group["suffix"].lstrip('.').upper()
-            title = f"{title} ({extension})"
+        if len(files) > 1:
+            title = folder_display_name(folder)
+            if folder_counts[folder] > 1:
+                extension = group["suffix"].lstrip('.').upper()
+                title = f"{title} ({extension})"
+            title = _combined_title(title, combined_names)
+            display_name = f"{title}（{len(files)} 個檔案合併）"
+        else:
+            title = files[0].stem
+            display_name = files[0].name
         group["files"] = files
         group["title"] = title
-        group["display_name"] = f"{title}（{len(files)} 個檔案合併）"
+        group["display_name"] = display_name
         group["convert"] = True
         group.pop("suffix", None)
         group.pop("kind", None)
