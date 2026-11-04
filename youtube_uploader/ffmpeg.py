@@ -1,4 +1,5 @@
 """ffmpeg probing, conversion, splitting and conversion-cache management."""
+import hashlib
 import os
 import shutil
 import subprocess
@@ -382,3 +383,101 @@ def remove_cached_conversion(files, part_duration_hours, cuts=None):
     except OSError:
         return
     remove_cache_by_fingerprint(fingerprint)
+
+
+def verify_video(path):
+    """Raise RuntimeError unless path is a non-empty video with a duration"""
+    if not path.exists() or path.stat().st_size == 0:
+        raise RuntimeError(f"轉檔輸出無效（空檔案）: {path}")
+    ffprobe = shutil.which('ffprobe')
+    if not ffprobe:
+        raise RuntimeError('找不到 ffprobe，請先安裝 ffmpeg')
+    result = subprocess.run([
+        ffprobe, '-v', 'error',
+        '-show_entries', 'stream=codec_type:format=duration',
+        '-of', 'default=nw=1', str(path),
+    ], capture_output=True, text=True)
+    if result.returncode != 0 or 'codec_type=video' not in result.stdout:
+        raise RuntimeError(f"轉檔輸出無效（沒有視訊串流）: {path}")
+    durations = [
+        float(line.split('=', 1)[1])
+        for line in result.stdout.splitlines()
+        if line.startswith('duration=')
+    ]
+    if not durations or max(durations) <= 0:
+        raise RuntimeError(f"轉檔輸出無效（duration 為 0）: {path}")
+
+
+def copy_fingerprint(source, part_hours):
+    """Cache key for a stream-copy split"""
+    stat = source.stat()
+    digest = hashlib.sha1()
+    for value in (str(source.resolve()), stat.st_size, stat.st_mtime_ns, part_hours):
+        digest.update(str(value).encode('utf-8'))
+        digest.update(b'\0')
+    return digest.hexdigest()[:20]
+
+
+def copy_cache_dir(source, part_hours):
+    """Cache directory for a stream-copy split"""
+    return CONVERTED_DIR / f"copy-{copy_fingerprint(source, part_hours)}"
+
+
+def split_without_encode(source, part_hours):
+    """Split one file with stream copy; raise RuntimeError if ffmpeg cannot"""
+    if part_hours <= 0:
+        return [source]
+    ffmpeg = shutil.which('ffmpeg')
+    if not ffmpeg:
+        raise RuntimeError('找不到 ffmpeg，請先安裝')
+    segment_seconds = max(1, int(part_hours * 3600) - 1)
+    cache_dir = copy_cache_dir(source, part_hours)
+    marker = cache_dir / 'done'
+    cached = sorted(cache_dir.glob(f"part*{source.suffix}"))
+    if marker.exists() and cached:
+        return cached
+    shutil.rmtree(cache_dir, ignore_errors=True)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    pattern = str(cache_dir / f"part%03d{source.suffix}")
+    result = subprocess.run([
+        ffmpeg, '-y', '-hide_banner', '-loglevel', 'error',
+        '-i', str(source),
+        '-map', '0:v:0', '-map', '0:a?', '-c', 'copy',
+        '-f', 'segment', '-segment_time', str(segment_seconds),
+        '-reset_timestamps', '1', '-segment_start_number', '1', pattern,
+    ])
+    parts = sorted(cache_dir.glob(f"part*{source.suffix}"))
+    if result.returncode != 0 or not parts:
+        shutil.rmtree(cache_dir, ignore_errors=True)
+        raise RuntimeError(f'stream-copy 分段失敗: {source}')
+    if len(parts) == 1:
+        ffprobe = shutil.which('ffprobe')
+        duration_text = (
+            ffprobe_value(['-i', str(source)], 'format=duration', ffprobe)
+            if ffprobe else None
+        )
+        try:
+            duration = float(duration_text)
+        except (TypeError, ValueError):
+            duration = 0
+        if duration > segment_seconds * 1.5:
+            shutil.rmtree(cache_dir, ignore_errors=True)
+            raise RuntimeError(f'keyframe 間距太大，無法用 stream-copy 分段: {source}')
+    marker.write_text(str(len(parts)), encoding='utf-8')
+    return parts
+
+
+def remove_copy_cache(source, part_hours):
+    """Delete a stream-copy split cache"""
+    shutil.rmtree(copy_cache_dir(source, part_hours), ignore_errors=True)
+
+
+def move_converted_to_source(converted, target):
+    """Move a converted file into place without overwriting an existing file"""
+    if target.exists():
+        raise FileExistsError(f'目標檔案已存在，唔會覆蓋: {target}')
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_name(target.name + '.part')
+    shutil.move(str(converted), str(tmp))
+    os.replace(tmp, target)
+    return target

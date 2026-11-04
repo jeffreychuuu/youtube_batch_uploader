@@ -1,8 +1,14 @@
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
-from youtube_uploader.ffmpeg import build_filter_graph, conversion_fingerprint
+from youtube_uploader.ffmpeg import (
+    build_filter_graph, conversion_fingerprint, copy_fingerprint,
+    move_converted_to_source, remove_copy_cache, split_without_encode,
+    verify_video,
+)
 
 
 class BuildFilterGraphTests(unittest.TestCase):
@@ -62,6 +68,63 @@ class ConversionFingerprintTests(unittest.TestCase):
                 conversion_fingerprint([path], 1, [(1, 2)]),
                 conversion_fingerprint([path], 1, [(1, 2)]),
             )
+
+
+class CopySplitTests(unittest.TestCase):
+    def test_fingerprint_changes_with_part_hours(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / 'a.mp4'
+            source.write_bytes(b'video')
+            self.assertNotEqual(
+                copy_fingerprint(source, 1),
+                copy_fingerprint(source, 0.25),
+            )
+
+    def test_move_refuses_existing_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            converted = Path(tmp) / 'converted.mp4'
+            target = Path(tmp) / 'target.mp4'
+            converted.write_bytes(b'a')
+            target.write_bytes(b'b')
+            with self.assertRaises(FileExistsError):
+                move_converted_to_source(converted, target)
+
+    @staticmethod
+    def _make_clip(path, keyframe_frames=None):
+        args = [
+            'ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
+            '-f', 'lavfi', '-i', 'testsrc=duration=5:size=320x240:rate=10',
+            '-f', 'lavfi', '-i', 'sine=frequency=440:duration=5',
+            '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac',
+        ]
+        if keyframe_frames:
+            args.extend(['-g', str(keyframe_frames)])
+        args.append(str(path))
+        subprocess.run(args, check=True)
+
+    @unittest.skipUnless(shutil.which('ffmpeg'), 'ffmpeg not installed')
+    def test_split_without_encode_produces_parts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / 'clip.mp4'
+            self._make_clip(source, keyframe_frames=10)
+            verify_video(source)
+            try:
+                parts = split_without_encode(source, 0.001)
+                self.assertGreaterEqual(len(parts), 2)
+                self.assertTrue(all(part.exists() for part in parts))
+            finally:
+                remove_copy_cache(source, 0.001)
+
+    @unittest.skipUnless(shutil.which('ffmpeg'), 'ffmpeg not installed')
+    def test_split_without_encode_rejects_sparse_keyframes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / 'clip.mp4'
+            self._make_clip(source)
+            try:
+                with self.assertRaises(RuntimeError):
+                    split_without_encode(source, 0.001)
+            finally:
+                remove_copy_cache(source, 0.001)
 
 
 if __name__ == '__main__':
