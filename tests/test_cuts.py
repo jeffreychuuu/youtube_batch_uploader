@@ -165,6 +165,10 @@ class NamespacedCutsTests(unittest.TestCase):
         self.assertEqual(job_cut_key(merged), ('folders', 'Folder'))
         self.assertEqual(job_cut_key(single), ('files', 'Clip'))
 
+    def test_golden_single_file_uses_folders_namespace(self):
+        job = {'title': 'Folder', 'files': [Path('/a/Folder.mp4')], 'golden': True}
+        self.assertEqual(job_cut_key(job), ('folders', 'Folder'))
+
 
 class LoadCutsTests(unittest.TestCase):
     def _load(self, data):

@@ -167,7 +167,7 @@ def job_cut_key(job):
     Merged jobs (more than one source file) are keyed by folder title under
     `folders`; single-file jobs are keyed by file stem under `files`.
     """
-    if len(job["files"]) > 1:
+    if job.get("golden") or len(job["files"]) > 1:
         return "folders", job["title"]
     return "files", job["files"][0].stem
 
