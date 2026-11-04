@@ -11,32 +11,58 @@ from youtube_uploader.state import (
 
 
 class UploadStateTests(unittest.TestCase):
-    def test_load_upload_state_returns_uploads_only(self):
+    def test_unwraps_legacy_uploads(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'upload_state.json'
             path.write_text(json.dumps({
-                'uploads': {'/a.mp4': {'parts': []}},
+                'uploads': {'/a.mp4': {'video_id': 'vid'}},
                 'golden_sources': {'/a.mp4': {'title': 'A'}},
             }), encoding='utf-8')
             state = load_upload_state(path)
-        self.assertEqual(state, {'uploads': {'/a.mp4': {'parts': []}}})
+        self.assertEqual(state, {'/a.mp4': {'video_id': 'vid'}})
+
+    def test_loads_flat_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'upload_state.json'
+            path.write_text(json.dumps({
+                '/a.mp4': {'video_id': 'vid'},
+            }), encoding='utf-8')
+            state = load_upload_state(path)
+        self.assertEqual(state, {'/a.mp4': {'video_id': 'vid'}})
 
     def test_missing_upload_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             state = load_upload_state(Path(tmp) / 'upload_state.json')
-        self.assertEqual(state, {'uploads': {}})
+        self.assertEqual(state, {})
 
-    def test_save_upload_state_drops_golden_sources(self):
+    def test_flattens_legacy_parts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'upload_state.json'
+            path.write_text(json.dumps({
+                'uploads': {
+                    '/a.mp4': {
+                        'size': 1,
+                        'parts': [
+                            {'video_id': 'v1', 'playlist_added': True},
+                            {'video_id': 'v2'},
+                        ],
+                    }
+                },
+            }), encoding='utf-8')
+            state = load_upload_state(path)
+        entry = state['/a.mp4']
+        self.assertEqual(entry['video_id'], 'v1')
+        self.assertTrue(entry['playlist_added'])
+        self.assertNotIn('parts', entry)
+
+    def test_save_writes_flat_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'upload_state.json'
             with patch('youtube_uploader.state.STATE_FILE', path):
-                save_upload_state({
-                    'uploads': {'/a.mp4': {'parts': []}},
-                    'golden_sources': {'/a.mp4': {'title': 'A'}},
-                })
+                save_upload_state({'/a.mp4': {'video_id': 'vid'}})
             written = json.loads(path.read_text(encoding='utf-8'))
-        self.assertNotIn('golden_sources', written)
-        self.assertIn('uploads', written)
+        self.assertNotIn('uploads', written)
+        self.assertEqual(written['/a.mp4']['video_id'], 'vid')
 
 
 class ConvertStateTests(unittest.TestCase):
@@ -45,16 +71,25 @@ class ConvertStateTests(unittest.TestCase):
             missing = Path(tmp) / 'upload_state.json'
             with patch('youtube_uploader.state.STATE_FILE', missing):
                 state = load_convert_state(Path(tmp) / 'convert_state.json')
-        self.assertEqual(state, {'golden_sources': {}})
+        self.assertEqual(state, {})
 
-    def test_reads_convert_state(self):
+    def test_reads_flat_convert_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'convert_state.json'
+            path.write_text(json.dumps({
+                '/a.mp4': {'title': 'A', 'source_files': []},
+            }), encoding='utf-8')
+            state = load_convert_state(path)
+        self.assertIn('/a.mp4', state)
+
+    def test_reads_legacy_wrapped_convert_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'convert_state.json'
             path.write_text(json.dumps({
                 'golden_sources': {'/a.mp4': {'title': 'A'}},
             }), encoding='utf-8')
             state = load_convert_state(path)
-        self.assertIn('/a.mp4', state['golden_sources'])
+        self.assertIn('/a.mp4', state)
 
     def test_legacy_fallback_from_upload_state(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -65,26 +100,23 @@ class ConvertStateTests(unittest.TestCase):
             }), encoding='utf-8')
             with patch('youtube_uploader.state.STATE_FILE', upload):
                 state = load_convert_state(Path(tmp) / 'convert_state.json')
-        self.assertIn('/a.mp4', state['golden_sources'])
+        self.assertIn('/a.mp4', state)
 
     def test_record_and_list_golden_source(self):
-        state = {'golden_sources': {}}
+        state = {}
         golden = Path('/tmp/movie.mp4')
         record_golden_source(state, golden, 'Movie', [Path('/tmp/VTS_01_1.VOB')])
         self.assertEqual(get_golden_paths(state), {str(golden.resolve())})
-        self.assertEqual(
-            state['golden_sources'][str(golden.resolve())]['title'], 'Movie'
-        )
+        self.assertEqual(state[str(golden.resolve())]['title'], 'Movie')
 
-    def test_save_convert_state_writes_golden_sources(self):
+    def test_save_writes_flat_convert_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'convert_state.json'
             with patch('youtube_uploader.state.CONVERT_STATE_FILE', path):
-                save_convert_state({
-                    'golden_sources': {'/a.mp4': {'title': 'A'}},
-                })
+                save_convert_state({'/a.mp4': {'title': 'A'}})
             written = json.loads(path.read_text(encoding='utf-8'))
-        self.assertIn('/a.mp4', written['golden_sources'])
+        self.assertNotIn('golden_sources', written)
+        self.assertEqual(written['/a.mp4']['title'], 'A')
 
 
 if __name__ == '__main__':

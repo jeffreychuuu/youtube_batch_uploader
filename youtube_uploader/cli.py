@@ -34,13 +34,13 @@ from .youtube_api import (
 
 
 def _ensure_unique_job_keys(jobs, cuts_map):
-    """Refuse ambiguous cuts.json matches when two jobs share the same title"""
+    """Refuse ambiguous cuts_config.json matches when two jobs share the same title"""
     seen = {}
     for job in jobs:
         title = job["title"]
         if title in seen and title in cuts_map:
             sys.exit(
-                f"[錯誤] 兩個影片項目共用同一個 cuts.json key \"{title}\"：\n"
+                f"[錯誤] 兩個影片項目共用同一個 cuts_config.json key \"{title}\"：\n"
                 f"        - {seen[title]['display_name']}\n"
                 f"        - {job['display_name']}\n"
                 "        請重新命名其中一個資料夾／檔案。"
@@ -75,7 +75,7 @@ def main(config=None):
         get_job_cuts(cuts_map, job, used_cut_keys)
     unused_cut_keys = sorted(set(cuts_map) - used_cut_keys)
     if unused_cut_keys:
-        print(f"[警告] cuts.json 有未匹配任何影片嘅 key：{', '.join(unused_cut_keys)}")
+        print(f"[警告] cuts_config.json 有未匹配任何影片嘅 key：{', '.join(unused_cut_keys)}")
     youtube = get_authenticated_service()
 
     # Get or create the playlist ID
@@ -94,7 +94,7 @@ def main(config=None):
             plan = prepare_source(job, convert_state, config)
             files = plan.files
             key = plan.key
-            entry = state["uploads"].get(key)
+            entry = state.get(key)
             cuts = get_job_cuts(cuts_map, job)
             stored_cuts = entry.get("cuts") if entry else None
             try:
@@ -103,13 +103,7 @@ def main(config=None):
                 stored_cuts_norm = []
             cuts_added_or_changed = bool(cuts) and cuts != stored_cuts_norm
             cuts_removed = not cuts and bool(stored_cuts_norm)
-            completed = bool(entry) and (
-                bool(entry.get("video_id"))
-                or (
-                    bool(entry.get("parts"))
-                    and all(part.get("video_id") for part in entry["parts"])
-                )
-            )
+            completed = bool(entry) and bool(entry.get("video_id"))
 
             if entry is None:
                 entry = get_entry(state, files[0])
@@ -133,7 +127,7 @@ def main(config=None):
             elif cuts_removed:
                 if not completed:
                     print(
-                        "  [錯誤] 此影片之前有 cut-list，但 cuts.json 已移除相關 key；"
+                        "  [錯誤] 此影片之前有 cut-list，但 cuts_config.json 已移除相關 key；"
                         "為安全起見唔會自動上傳未剪版本。\n"
                         "        如確定要上傳未剪版本，請先刪除 upload_state.json 內該 entry。"
                     )
@@ -145,66 +139,33 @@ def main(config=None):
                     entry["cuts"] = cuts_for_state(cuts)
                     save_upload_state(state)
 
-            # Migrate entries written by older versions that had one video per job
-            if "parts" not in entry:
-                if entry.get("video_id"):
-                    entry["parts"] = [{
-                        "video_id": entry["video_id"],
-                        "playlist_added": entry.get("playlist_added", False),
-                        "bytes_sent": entry.get("bytes_sent"),
-                    }]
-                else:
-                    entry["parts"] = []
-                for field in (
-                    "video_id", "playlist_added", "bytes_sent",
-                    "resumable_uri", "upload_size",
-                ):
-                    entry.pop(field, None)
-                save_upload_state(state)
-
-            parts_state = entry["parts"]
-            all_done = bool(parts_state) and all(
-                part.get("video_id") for part in parts_state
-            )
+            all_done = bool(entry.get("video_id"))
 
             if all_done:
                 print(f"[略過] 已上傳過：{job['display_name']}")
             else:
                 media_parts = media_parts_for_plan(plan, cuts)
+                media_path = media_parts[0]
+                title = job["title"]
+                display_name = title
+                if job["convert"] or plan.golden:
+                    display_name += "（已轉檔為 MP4）"
+                upload_video(
+                    youtube, media_path, title, display_name,
+                    config, entry, state
+                )
 
-                if len(parts_state) != len(media_parts):
-                    parts_state = [{} for _ in media_parts]
-                    entry["parts"] = parts_state
-                    save_upload_state(state)
+            # Add the uploaded video to the playlist (fills in missing on rerun)
+            if (
+                entry.get("video_id")
+                and playlist_id
+                and not entry.get("playlist_added")
+            ):
+                add_video_to_playlist(youtube, playlist_id, entry["video_id"])
+                entry["playlist_added"] = True
+                save_upload_state(state)
 
-                for media_path in media_parts:
-                    part_entry = parts_state[0]
-                    title = job["title"]
-                    if part_entry.get("video_id"):
-                        print(f"[略過] 已上傳過：{title} (ID: {part_entry['video_id']})")
-                        continue
-                    display_name = title
-                    if job["convert"] or plan.golden:
-                        display_name += "（已轉檔為 MP4）"
-                    upload_video(
-                        youtube, media_path, title, display_name,
-                        config, part_entry, state
-                    )
-
-            # Add every uploaded part to the playlist (fills in missing ones on rerun)
-            for part_entry in parts_state:
-                if (
-                    part_entry.get("video_id")
-                    and playlist_id
-                    and not part_entry.get("playlist_added")
-                ):
-                    add_video_to_playlist(youtube, playlist_id, part_entry["video_id"])
-                    part_entry["playlist_added"] = True
-                    save_upload_state(state)
-
-            all_done = bool(parts_state) and all(
-                part.get("video_id") for part in parts_state
-            )
+            all_done = bool(entry.get("video_id"))
             if all_done:
                 cleanup_plan_cache(plan, cuts)
 

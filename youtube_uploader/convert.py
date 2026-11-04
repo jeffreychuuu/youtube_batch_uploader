@@ -1,23 +1,15 @@
 """Convert source videos to golden MP4s without uploading."""
-import sys
-
 from .files import build_upload_jobs, scan_video_files
 from .golden import (
     ensure_unique_converted_targets, mark_golden_jobs,
     skip_converted_source_jobs,
 )
-from .pipeline import prepare_source
+from .pipeline import prepare_source, remove_original_sources
 from .state import load_convert_state, save_convert_state
 
 
 def run_convert_only(config):
     """Convert every convert-extension job and stop; never touches YouTube"""
-    if not config["export_converted_source"]:
-        sys.exit(
-            "[錯誤] convert_only 需要 export_converted_source 設為 true；"
-            "否則轉檔結果只會留喺 .converted/ cache。"
-        )
-
     video_files = scan_video_files(
         config["root_folder"], config["convert_extensions"]
     )
@@ -35,6 +27,9 @@ def run_convert_only(config):
     state = load_convert_state()
     mark_golden_jobs(jobs, state)
     skipped_sources = skip_converted_source_jobs(jobs, state)
+    for job in jobs:
+        if job.get("skip_reason") == "golden":
+            remove_original_sources(job["files"], config)
 
     pending = [
         job for job in jobs

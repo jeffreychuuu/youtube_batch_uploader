@@ -11,13 +11,13 @@ Supports **resumable uploads**: if the connection drops, the machine shuts down,
 ## Features
 
 - Recursively scans a folder and uploads every supported video
-- VOB (DVD) support: multi-segment `VTS_01_1.VOB`, `VTS_01_2.VOB`, ... files are merged and transcoded to MP4 with ffmpeg; the merged video is titled after its folder
+- VOB (DVD) support: multi-segment `VTS_01_1.VOB`, `VTS_01_2.VOB`, ... files are merged and transcoded to MP4 with ffmpeg; the merged video is titled `<folder> [combined]`
 - Each video is uploaded as a single file (no splitting)
-- Cut-list support: remove time ranges flagged by YouTube before upload (`cuts.json`)
+- Cut-list support: remove time ranges flagged by YouTube before upload (`config/cuts_config.json`)
 - Golden source support: keep the converted MP4 and reuse it for later cuts and uploads; `convert_only.py` prepares golden files without YouTube authorization
 - Optional ffmpeg transcoding for other formats (e.g. AVI) via `convert_extensions`
 - Adds uploaded videos to a playlist (creating it if needed); reruns never add duplicates
-- Progress is stored in `upload_state.json`; completed files are skipped on rerun
+- Progress is stored in `state/upload_state.json`; completed files are skipped on rerun
 - Unfinished uploads keep their resumable session and continue from the breakpoint
 - Automatic exponential backoff retry on network errors / 429 / 5xx
 - Configurable chunk size (default 32 MB, must be a multiple of 256 KB)
@@ -73,7 +73,7 @@ Windows: download a build from [ffmpeg.org](https://ffmpeg.org/) and add it to `
 4. Go to **APIs & Services → Credentials → Create Credentials → OAuth client ID**:
    - Select **Desktop app** as the application type
    - After creating it, click **Download JSON** to download the credential
-5. Rename the downloaded JSON to **`client_secrets.json`** and place it in the same folder as `batch_upload.py`.
+5. Rename the downloaded JSON to **`client_secrets.json`** and place it in the project root.
 
 > A correct Desktop App credential contains an `"installed"` block in `client_secrets.json`.
 
@@ -82,7 +82,7 @@ Windows: download a build from [ffmpeg.org](https://ffmpeg.org/) and add it to `
 The first run opens a browser asking you to sign in to your Google account and authorize access.
 
 - Choose the **YouTube channel** you want to upload to
-- After authorization, `token.pickle` is created in the same folder; later runs will not ask you to sign in again
+- After authorization, `token.pickle` is created in the project root; later runs will not ask you to sign in again
 
 > `token.pickle` is equivalent to your login credential. **Never share it or upload it anywhere.**
 
@@ -90,20 +90,20 @@ The first run opens a browser asking you to sign in to your Google account and a
 
 ## 2. Video List
 
-This version **does not use a CSV file**: the script recursively scans every video file under `CONFIG["root_folder"]` and uses the **file name (without extension) as the video title**. The only exception is a merged multi-segment VOB, which is titled after its folder (see below).
+This version **does not use a CSV file**: the script recursively scans every video file under `root_folder` and uses the **file name (without extension) as the video title**. The only exception is a merged multi-segment VOB, which is titled after its folder (see below).
 
-Supported extensions (editable in `CONFIG["video_extensions"]`):
+Supported extensions (editable in `video_extensions` in `config/upload_config.json`):
 
 ```
 .mp4  .mov  .mkv  .avi  .m4v  .vob
 ```
 
-**AVI** is officially supported by YouTube and is uploaded as-is by default. If a particular AVI file uses a codec YouTube cannot process, add `".avi"` to `convert_extensions` in `config.json` to transcode it to MP4 with ffmpeg first.
+**AVI** is officially supported by YouTube and is uploaded as-is by default. If a particular AVI file uses a codec YouTube cannot process, add `".avi"` to `convert_extensions` in `config/convert_config.json` to transcode it to MP4 with ffmpeg first.
 
 **VOB** is not officially supported by YouTube, so `.vob` is in `convert_extensions` by default. The script then:
 
 - Groups files such as `VTS_01_1.VOB`, `VTS_01_2.VOB`, ... by title set and merges them in numeric order into one video
-- Titles the merged video after its folder (using the parent folder name when the files are inside `VIDEO_TS`)
+- Titles the merged video `<folder> [combined]` (using the parent folder name when the files are inside `VIDEO_TS`)
 - Skips DVD menu files (`*_0.VOB` and `VIDEO_TS.VOB`)
 - Uses the original file name as the title for a standalone VOB
 - Converts the source to a single MP4 (H.264/AAC) with ffmpeg
@@ -125,7 +125,7 @@ If you want to specify each video's title, description, tags, or privacy with a 
 
 ### 2.1 Cut-list: remove flagged segments
 
-If YouTube flags a video and gives time ranges to remove, create `cuts.json` next to the script:
+If YouTube flags a video and gives time ranges to remove, create `config/cuts_config.json`:
 
 ```json
 {
@@ -140,11 +140,11 @@ If YouTube flags a video and gives time ranges to remove, create `cuts.json` nex
 - The key is the video title: `<folder> [combined]` for a combined group, or the filename (without extension) for a single file.
 - The value is an array of time ranges to remove from the **full video timeline** (the same timeline YouTube shows).
 - Time formats: `MM:SS` or `HH:MM:SS`. Separate start/end with `-`, `–`, `—`, `~`, or `to`.
-- JSON does not support comments; `cuts.example.json` shows the format.
+- JSON does not support comments; `config/cuts_config.example.json` shows the format.
 - The ranges are removed during the ffmpeg conversion.
 - Changing the cut list invalidates the conversion cache. If the job was already uploaded and the source files still exist, the script re-processes it and uploads a corrected version. The old YouTube video is **not** deleted automatically.
 - Local source removal follows `remove_local_after_upload` as usual, even when a cut list is set.
-- `cuts.json` is gitignored; see `cuts.example.json` for the format.
+- `config/cuts_config.json` is gitignored; see `config/cuts_config.example.json` for the format.
 
 ---
 
@@ -152,21 +152,20 @@ If YouTube flags a video and gives time ranges to remove, create `cuts.json` nex
 
 ### 3.1 Edit the configuration
 
-Settings are split into two files. Copy both examples, then edit them:
+Settings live in separate files. Copy the examples, then edit them:
 
 ```bash
-cp convert_config.example.json convert_config.json
-cp upload_config.example.json upload_config.json
+cp config/convert_config.example.json config/convert_config.json
+cp config/upload_config.example.json config/upload_config.json
 ```
 
-**`convert_config.json`** — what to scan and how to build golden MP4s:
+**`config/convert_config.json`** — what to scan and how to build golden MP4s:
 
 ```json
 {
   "root_folder": "/path/to/your/videos",
   "convert_extensions": [".vob"],
   "combine": true,
-  "export_converted_source": false,
   "remove_original_after_conversion": false,
   "remove_original_permanent": false
 }
@@ -177,11 +176,10 @@ cp upload_config.example.json upload_config.json
 | `root_folder` | Source folder for videos; all subfolders are scanned recursively |
 | `convert_extensions` | Extensions transcoded to MP4 with ffmpeg (default `[".vob"]`); add `".avi"` to force AVI transcoding. The convert script scans exactly these extensions |
 | `combine` | `true` (default) merges VOB title sets and same-folder files of the same convert extension, in natural order; `false` makes every file its own job |
-| `export_converted_source` | `true` = keep the converted MP4 next to the source (or its `VIDEO_TS` parent) and reuse it as the source of record |
-| `remove_original_after_conversion` | `true` = remove the original files after the converted MP4 is verified (requires `export_converted_source`) |
+| `remove_original_after_conversion` | `true` = remove the original files after the converted MP4 is verified; also cleans up sources of already-converted jobs on a later run |
 | `remove_original_permanent` | Removal method for conversion-time cleanup: `false` = move to Trash (default) / `true` = delete permanently |
 
-**`upload_config.json`** — how to scan and publish (fully independent):
+**`config/upload_config.json`** — how to scan and publish (fully independent):
 
 ```json
 {
@@ -209,11 +207,11 @@ cp upload_config.example.json upload_config.json
 | `remove_local_after_upload` | `true` = remove the local source after a successful upload; `false` = keep it (default). Golden files are never removed |
 | `remove_local_permanent` | Removal method for post-upload cleanup: `false` = move to Trash (recoverable, default) / `true` = delete permanently (irreversible) |
 
-Both files are listed in `.gitignore` and **will not be committed**; you can safely use your own paths even after forking this repo. They are **fully independent**: `upload_config.json` never reads `convert_config.json`. Missing files fall back to the built-in defaults.
+Both files live in `config/` and are listed in `.gitignore` and **will not be committed**; you can safely use your own paths even after forking this repo. They are **fully independent**: `config/upload_config.json` never reads `config/convert_config.json`. Missing files fall back to the built-in defaults.
 
 **Combining files.** `combine` decides whether files are merged before conversion. `true` (default) merges VOB title sets and same-folder files of the same convert extension (for example `.m2ts` segments), in natural order. `false` makes every file its own upload. A combined group is named `<folder> [combined]` and produces one golden MP4 and one upload; with `false`, each source file keeps its own filename as the title and gets its own golden MP4 and upload.
 
-**Converted sources and golden files.** When `export_converted_source` is enabled, a converted file becomes a *golden source*: later runs cut and upload from it instead of re-reading the originals. Uploads with cuts are re-encoded; uploads without cuts use the file as-is. `remove_original_after_conversion` is the only setting that removes the original files at conversion time — `remove_local_after_upload` never removes a golden file. A golden job uses its recorded title as the `cuts.json` key, so cuts keep working after conversion. Two sources that would write the same golden file stop the run instead of overwriting.
+**Converted sources and golden files.** A converted file always becomes a *golden source*: later runs cut and upload from it instead of re-reading the originals. Uploads with cuts are re-encoded; uploads without cuts use the file as-is. `remove_original_after_conversion` is the only setting that removes the original files at conversion time — `remove_local_after_upload` never removes a golden file. A golden job uses its recorded title as the `config/cuts_config.json` key, so cuts keep working after conversion. Two sources that would write the same golden file stop the run instead of overwriting.
 
 ### 3.2 Run
 
@@ -238,7 +236,7 @@ To convert first, run `python3 convert_only.py` (section 3.3). To do both with o
 python3 convert_and_upload.py
 ```
 
-That runs conversion with `convert_config.json`, then upload with `upload_config.json`.
+That runs conversion with `config/convert_config.json`, then upload with `config/upload_config.json`.
 
 ### 3.3 Convert only (no upload)
 
@@ -248,7 +246,7 @@ To prepare golden MP4s without uploading anything, run:
 python3 convert_only.py
 ```
 
-This path never authenticates with YouTube and never uploads. It reads `convert_config.json` only; `upload_config.json` is not needed. It records converted sources in `convert_state.json` (separate from `upload_state.json`). It requires `export_converted_source: true`. It converts every job whose extension is in `convert_extensions`, respects `remove_original_after_conversion` / `remove_original_permanent`, skips files that already have a golden source, and prints a converted/skipped/failed summary. Cuts are ignored here; the golden source is always the uncut full video.
+This path never authenticates with YouTube and never uploads. It reads `config/convert_config.json` only; `config/upload_config.json` is not needed. It records converted sources in `state/convert_state.json` (separate from `state/upload_state.json`). It converts every job whose extension is in `convert_extensions`, respects `remove_original_after_conversion` / `remove_original_permanent`, skips files that already have a golden source (removing their originals when `remove_original_after_conversion` is set), and prints a converted/skipped/failed summary. Cuts are ignored here; the golden source is always the uncut full video.
 
 ### 3.4 "Draft" and publishing
 
@@ -262,7 +260,7 @@ The YouTube API **has no concept of a "draft"**: once an upload completes, the v
 
 ### 3.5 Automatic local cleanup after upload
 
-Set the following in `upload_config.json`:
+Set the following in `config/upload_config.json`:
 
 ```json
 "remove_local_after_upload": true,
@@ -294,34 +292,39 @@ Notes:
 
 ### 4.1 `upload_state.json` and `convert_state.json`
 
-The upload script creates `upload_state.json` in the same folder, recording each uploaded video. Conversion progress (the golden source index) lives separately in `convert_state.json`, so the convert and upload scripts stay independent:
+Both files live in `state/`. `upload_state.json` records each uploaded video; `convert_state.json` records the golden source index. They are independent:
 
 ```json
 {
-  "uploads": {
-    "/path/to/your/videos/My Video/VTS_01_1.VOB": {
-      "size": 4596858880,
-      "mtime": 1700000000.0,
-      "local_removed": true,
-      "parts": [
-        {
-          "upload_size": 566007357,
-          "bytes_sent": 566007357,
-          "video_id": "xxxxxxxxxxx",
-          "playlist_added": true
-        }
-      ]
-    }
+  "/path/to/videos/Folder [combined].mp4": {
+    "size": 4596858880,
+    "mtime": 1700000000.0,
+    "cuts": [[10, 20]],
+    "local_removed": false,
+    "video_id": "xxxxxxxxxxx",
+    "playlist_added": true,
+    "bytes_sent": 566007357,
+    "resumable_uri": null,
+    "upload_size": 566007357
   }
 }
 ```
 
-- `parts` holds the uploaded video entry (kept for backward compatibility with older state files)
+```json
+{
+  "/path/to/videos/Folder [combined].mp4": {
+    "title": "Folder [combined]",
+    "source_files": ["/path/to/videos/Folder/VTS_01_1.VOB", "..."]
+  }
+}
+```
+
+- `upload_state.json` is a flat map: source path → one upload entry
 - Updated after every uploaded chunk
 - A completed video is skipped on the next run
-- An unfinished upload keeps its `resumable_uri` and `bytes_sent`, and resumes automatically on the next run
+- An unfinished upload keeps its `resumable_uri` and `bytes_sent`, and resumes automatically
 - If the file size or modification time changes, it is treated as a new version and re-uploaded
-- State files written by older versions (with a top-level `video_id`) are migrated automatically
+- Older state files (with `uploads`, `parts`, `golden_sources`, or `video_id` wrappers) are migrated automatically on load
 
 ### 4.2 What if the upload stops midway?
 
@@ -339,8 +342,8 @@ python batch_upload.py
 
 ### 4.3 Force a re-upload
 
-- Re-upload **a single file**: delete that file's entry from `upload_state.json`
-- Re-upload **everything**: delete the entire `upload_state.json`
+- Re-upload **a single file**: delete that file's entry from `state/upload_state.json`
+- Re-upload **everything**: delete the entire `state/upload_state.json`
 
 (Close any running script before deleting.)
 
@@ -379,7 +382,7 @@ Without ffmpeg, VOB jobs fail with an error but other formats still upload norma
 
 ### AVI upload fails or plays incorrectly
 
-AVI is officially supported by YouTube, but some codecs found inside AVI files are not. Add `".avi"` to `convert_extensions` in `convert_config.json`; the script will transcode AVI to MP4 (H.264/AAC) before uploading.
+AVI is officially supported by YouTube, but some codecs found inside AVI files are not. Add `".avi"` to `convert_extensions` in `config/convert_config.json`; the script will transcode AVI to MP4 (H.264/AAC) before uploading.
 
 ### VOB conversion is slow or uses a lot of disk space
 
@@ -422,25 +425,27 @@ youtube_batch_uploader/
 │   ├── cli.py            # Upload flow and job orchestration
 │   ├── convert.py        # Conversion-only flow
 │   ├── golden.py         # Golden source detection and coexistence
-│   ├── pipeline.py       # Source preparation and part selection
+│   ├── pipeline.py       # Source preparation and media selection
 │   ├── config.py         # convert/upload config loading and file paths
-│   ├── cuts.py           # cuts.json parsing and part offsets
-│   ├── state.py          # upload_state.json tracking
+│   ├── cuts.py           # cuts_config.json parsing and lookup
+│   ├── state.py          # upload/convert state tracking
 │   ├── files.py          # Scanning, grouping and local cleanup
 │   ├── ffmpeg.py         # Probing, conversion and cache
 │   └── youtube_api.py    # OAuth, playlists and resumable uploads
 ├── tests/                # Unit tests (python3 -m unittest)
-├── convert_config.example.json # Example convert settings (committed)
-├── upload_config.example.json  # Example upload settings (committed)
-├── convert_config.json   # Your local convert settings (not committed)
-├── upload_config.json    # Your local upload settings (not committed)
-├── client_secrets.json   # OAuth credentials (download yourself, never share)
-├── token.pickle          # Login token (created on first run, never share)
-├── upload_state.json     # Upload progress record (created automatically)
-├── convert_state.json    # Golden source index for conversion (created automatically)
-├── cuts.json             # Local cut-list for flagged videos (not committed)
-├── cuts.example.json     # Cut-list example
-├── .converted/           # Temporary MP4 conversions (created automatically, safe to delete)
+├── config/               # Settings (examples committed; local files not)
+│   ├── convert_config.example.json # Example convert settings
+│   ├── upload_config.example.json  # Example upload settings
+│   ├── cuts_config.example.json    # Cut-list example
+│   ├── convert_config.json         # Your local convert settings
+│   ├── upload_config.json          # Your local upload settings
+│   └── cuts_config.json            # Your local cut-list
+├── client_secrets.json   # OAuth credential (download yourself; do not share)
+├── token.pickle          # Login token (created on first run; do not share)
+├── .converted/           # Temporary MP4 conversions (safe to delete)
+├── state/                # Generated runtime files (not committed)
+│   ├── upload_state.json
+│   └── convert_state.json
 ├── README.md             # English documentation
 └── README.zh-TW.md       # Traditional Chinese documentation
 ```
@@ -459,6 +464,6 @@ The following files contain sensitive data. **Never** upload them to GitHub, clo
 
 - `client_secrets.json` (OAuth client secret)
 - `token.pickle` (equivalent to your login authorization)
-- `upload_state.json` (contains local paths and video IDs)
+- `state/upload_state.json` (contains local paths and video IDs)
 
 If your credentials leak, immediately delete the OAuth client ID in Google Cloud Console and create a new one.

@@ -18,24 +18,22 @@ class ConvertConfigTests(unittest.TestCase):
             config = load_convert_config(
                 _write(tmp, 'convert_config.json', {})
             )
-        self.assertFalse(config['export_converted_source'])
         self.assertFalse(config['remove_original_after_conversion'])
         self.assertFalse(config['remove_original_permanent'])
         self.assertTrue(config['combine'])
 
-    def test_remove_original_requires_export(self):
+    def test_remove_original_needs_no_export_flag(self):
         with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaises(SystemExit):
-                load_convert_config(_write(tmp, 'convert_config.json', {
-                    'remove_original_after_conversion': True,
-                    'export_converted_source': False,
-                }))
+            config = load_convert_config(_write(tmp, 'convert_config.json', {
+                'remove_original_after_conversion': True,
+            }))
+        self.assertTrue(config['remove_original_after_conversion'])
 
     def test_flags_must_be_boolean(self):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(SystemExit):
                 load_convert_config(_write(tmp, 'convert_config.json', {
-                    'export_converted_source': 'yes',
+                    'remove_original_after_conversion': 'yes',
                 }))
 
     def test_combine_must_be_boolean(self):
@@ -58,7 +56,6 @@ class UploadConfigTests(unittest.TestCase):
             config = load_upload_config(upload)
         self.assertEqual(config['root_folder'], '/videos')
         self.assertEqual(config['playlist_name'], 'P')
-        self.assertNotIn('export_converted_source', config)
         self.assertNotIn('convert_extensions', config)
 
     def test_missing_config_uses_defaults(self):

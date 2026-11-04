@@ -7,38 +7,77 @@ from .config import CONVERT_STATE_FILE, STATE_FILE
 
 
 def _atomic_write(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + '.tmp')
     with open(tmp, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     os.replace(tmp, path)
 
 
+def _flatten_upload_entry(entry):
+    """Drop legacy split/golden fields and flatten a single video entry"""
+    if not isinstance(entry, dict):
+        return {}
+    entry = dict(entry)
+    entry.pop("golden_exported", None)
+    entry.pop("golden_source", None)
+    entry.pop("part_duration_hours", None)
+    parts = entry.pop("parts", None)
+    if parts and not entry.get("video_id"):
+        for part in parts:
+            if part.get("video_id"):
+                entry["video_id"] = part["video_id"]
+                entry["playlist_added"] = part.get("playlist_added", False)
+                entry["bytes_sent"] = part.get("bytes_sent")
+                entry["resumable_uri"] = part.get("resumable_uri")
+                entry["upload_size"] = part.get("upload_size")
+                break
+    return entry
+
+
 def load_upload_state(state_file=STATE_FILE):
-    """Load upload_state.json; start fresh if the file is corrupt"""
+    """Load upload_state.json as {source path: entry}; start fresh if corrupt"""
     if state_file.exists():
         try:
             with open(state_file, 'r', encoding='utf-8') as f:
                 state = json.load(f)
             if isinstance(state.get("uploads"), dict):
-                return {"uploads": state["uploads"]}
+                raw = state["uploads"]
+            elif isinstance(state, dict):
+                raw = {
+                    key: value for key, value in state.items()
+                    if key not in ("uploads", "golden_sources")
+                    and isinstance(value, dict)
+                }
+            else:
+                raw = {}
+            return {
+                key: _flatten_upload_entry(entry)
+                for key, entry in raw.items()
+            }
         except (json.JSONDecodeError, OSError) as e:
             print(f"[警告] 進度檔 {state_file.name} 無法讀取（{e}），將重新開始記錄。")
-    return {"uploads": {}}
+    return {}
 
 
 def save_upload_state(state):
-    """Atomically write the upload progress file"""
-    _atomic_write(STATE_FILE, {"uploads": state["uploads"]})
+    """Atomically write the flat upload progress file"""
+    _atomic_write(STATE_FILE, state)
 
 
 def load_convert_state(state_file=CONVERT_STATE_FILE):
-    """Load convert_state.json; fall back to legacy golden data in upload_state.json"""
+    """Load convert_state.json as {golden path: info}; fall back to legacy data"""
     if state_file.exists():
         try:
             with open(state_file, 'r', encoding='utf-8') as f:
                 state = json.load(f)
             if isinstance(state.get("golden_sources"), dict):
-                return {"golden_sources": state["golden_sources"]}
+                return state["golden_sources"]
+            if isinstance(state, dict):
+                return {
+                    key: value for key, value in state.items()
+                    if isinstance(value, dict)
+                }
         except (json.JSONDecodeError, OSError) as e:
             print(f"[警告] 轉檔記錄 {state_file.name} 無法讀取（{e}），將重新開始記錄。")
     elif STATE_FILE.exists():
@@ -51,32 +90,29 @@ def load_convert_state(state_file=CONVERT_STATE_FILE):
                     "[提示] 從 upload_state.json 讀取舊 golden_sources；"
                     "下次儲存會寫入 convert_state.json。"
                 )
-                return {"golden_sources": goldens}
+                return goldens
         except (json.JSONDecodeError, OSError):
             pass
-    return {"golden_sources": {}}
+    return {}
 
 
 def save_convert_state(state):
-    """Atomically write the conversion progress file"""
-    _atomic_write(
-        CONVERT_STATE_FILE,
-        {"golden_sources": state.get("golden_sources", {})},
-    )
+    """Atomically write the flat conversion progress file"""
+    _atomic_write(CONVERT_STATE_FILE, state)
 
 
 def get_entry(state, file_path):
-    return state["uploads"].setdefault(str(file_path.resolve()), {})
+    return state.setdefault(str(file_path.resolve()), {})
 
 
 def get_golden_paths(state):
     """Return the absolute golden source paths recorded in state"""
-    return set(state.get("golden_sources", {}))
+    return set(state)
 
 
 def record_golden_source(state, golden_path, title, source_files):
     """Record a converted MP4 as the golden source for a job"""
-    state.setdefault("golden_sources", {})[str(golden_path.resolve())] = {
+    state[str(golden_path.resolve())] = {
         "title": title,
         "source_files": [str(path.resolve()) for path in source_files],
     }

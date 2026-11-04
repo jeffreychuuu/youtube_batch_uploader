@@ -4,7 +4,8 @@ client_secrets*.json
 token.pickle
 *.pickle
 
-# ===== 本機設定（包含個人影片路徑）=====
+# ===== 本機設定 / 狀態（包含個人影片路徑）=====
+state/
 config.json
 convert_config.json
 upload_config.json
@@ -16,7 +17,7 @@ convert_state.json
 convert_state.json.tmp
 
 # ===== 影片剪輯清單（包含個人影片標題）=====
-cuts.json
+cuts_config.json
 
 # ===== ffmpeg 轉檔暫存 =====
 .converted/

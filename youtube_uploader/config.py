@@ -3,16 +3,19 @@ import json
 import sys
 from pathlib import Path
 
-# The package lives in a subfolder of the project directory, so keep user files
-# (config, credentials, state) next to the batch_upload.py entry point.
+# The package lives in a subfolder of the project directory. Settings live
+# in `config/`, credentials and the conversion cache next to the entry
+# points, and progress files in a separate `state/` folder.
 BASE_DIR = Path(__file__).resolve().parent.parent
+CONFIG_DIR = BASE_DIR / 'config'
+STATE_DIR = BASE_DIR / 'state'
 CLIENT_SECRETS_FILE = BASE_DIR / 'client_secrets.json'
 TOKEN_PICKLE_FILE = BASE_DIR / 'token.pickle'
-STATE_FILE = BASE_DIR / 'upload_state.json'
-CONVERT_STATE_FILE = BASE_DIR / 'convert_state.json'
-CUTS_FILE = BASE_DIR / 'cuts.json'
-CONVERT_CONFIG_FILE = BASE_DIR / 'convert_config.json'
-UPLOAD_CONFIG_FILE = BASE_DIR / 'upload_config.json'
+STATE_FILE = STATE_DIR / 'upload_state.json'
+CONVERT_STATE_FILE = STATE_DIR / 'convert_state.json'
+CUTS_FILE = CONFIG_DIR / 'cuts_config.json'
+CONVERT_CONFIG_FILE = CONFIG_DIR / 'convert_config.json'
+UPLOAD_CONFIG_FILE = CONFIG_DIR / 'upload_config.json'
 # Cache for MP4 conversions; safe to delete between runs
 CONVERTED_DIR = BASE_DIR / '.converted'
 
@@ -27,8 +30,6 @@ DEFAULT_CONVERT_CONFIG = {
     # Merge files that belong together: VOB title sets, and same-folder files
     # of the same convert extension. false = every file is its own job.
     "combine": True,
-    # Persist the converted MP4 next to the source and reuse it as the source of record
-    "export_converted_source": False,
     # Remove the original files after a verified conversion
     "remove_original_after_conversion": False,
     # Conversion-time removal method: false = move to Trash, true = delete permanently
@@ -86,20 +87,11 @@ def _validate_convert(config):
     if not isinstance(config["combine"], bool):
         sys.exit("[錯誤] combine 必須係 true 或 false。")
     for key in (
-        "export_converted_source",
         "remove_original_after_conversion",
         "remove_original_permanent",
     ):
         if not isinstance(config[key], bool):
             sys.exit(f"[錯誤] {key} 必須係 true 或 false。")
-    if (
-        config["remove_original_after_conversion"]
-        and not config["export_converted_source"]
-    ):
-        sys.exit(
-            "[錯誤] remove_original_after_conversion 需要 "
-            "export_converted_source 同時設為 true。"
-        )
 
 
 def _validate_upload(config):

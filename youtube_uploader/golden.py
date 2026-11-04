@@ -34,7 +34,7 @@ def ensure_unique_converted_targets(jobs):
 
 def mark_golden_jobs(jobs, state):
     """Mark single-file jobs recorded as golden sources"""
-    golden = state.get("golden_sources", {})
+    golden = state
     for job in jobs:
         if len(job["files"]) != 1:
             continue
@@ -47,7 +47,7 @@ def mark_golden_jobs(jobs, state):
 
 def skip_converted_source_jobs(jobs, state):
     """Skip source jobs whose recorded golden file already exists"""
-    golden = state.get("golden_sources", {})
+    golden = state
     skipped = []
     for job in jobs:
         if job.get("golden"):

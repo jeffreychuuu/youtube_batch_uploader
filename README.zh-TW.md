@@ -11,13 +11,13 @@
 ## 功能特色
 
 - 遞迴掃描指定資料夾，自動上傳所有支援格式的影片
-- 支援 VOB（DVD）：同一資料夾的 `VTS_01_1.VOB`、`VTS_01_2.VOB`… 會按編號合併並用 ffmpeg 轉成 MP4，合併後的影片以資料夾名稱為標題
+- 支援 VOB（DVD）：同一資料夾的 `VTS_01_1.VOB`、`VTS_01_2.VOB`… 會按編號合併並用 ffmpeg 轉成 MP4，合併後的影片以 `<folder> [combined]` 為標題
 - 每條片會以單一檔案上傳（唔會分段）
-- 支援 cut-list：上傳前剪走被 YouTube flag 嘅時間範圍（`cuts.json`）
+- 支援 cut-list：上傳前剪走被 YouTube flag 嘅時間範圍（`config/cuts_config.json`）
 - 支援 golden source：保留轉檔後嘅 MP4，之後再由佢剪／上傳；`convert_only.py` 可以喺毋須 YouTube 授權嘅情況下準備 golden 檔案
 - 可透過 `convert_extensions` 指定其他格式（例如 AVI）先用 ffmpeg 轉檔
 - 上傳完成後自動加入（或建立）指定播放清單，重跑不會重複加入
-- 進度記錄於 `upload_state.json`，已完成的檔案重跑時直接跳過
+- 進度記錄於 `state/upload_state.json`，已完成的檔案重跑時直接跳過
 - 未完成的上傳會保存 resumable session，重跑時從斷點續傳
 - 網絡斷線 / 429 / 5xx 自動以 exponential backoff 重試
 - 分塊上傳大小可調整（預設 32MB，必須為 256KB 的整數倍）
@@ -73,7 +73,7 @@ Windows：由 [ffmpeg.org](https://ffmpeg.org/) 下載並加入 `PATH`。
 4. 進入 **APIs & Services → Credentials → Create Credentials → OAuth client ID**：
    - Application type 選擇 **Desktop app**
    - 建立後按 **Download JSON** 下載憑證
-5. 將下載的 JSON 改名為 **`client_secrets.json`**，放在與 `batch_upload.py` 相同的資料夾。
+5. 將下載的 JSON 改名為 **`client_secrets.json`**，放在專案根目錄。
 
 > `client_secrets.json` 內含有 `"installed"` 區塊，就代表是正確的 Desktop App 憑證。
 
@@ -82,7 +82,7 @@ Windows：由 [ffmpeg.org](https://ffmpeg.org/) 下載並加入 `PATH`。
 第一次執行 Script 時，會自動開啟瀏覽器要求登入 Google 帳號並授權。
 
 - 選擇你要上傳的 **YouTube channel**
-- 授權成功後會在同一資料夾產生 `token.pickle`，之後再執行就不需要重新登入
+- 授權成功後會在專案根目錄產生 `token.pickle`，之後再執行就不需要重新登入
 
 > `token.pickle` 等同於登入憑證，**請勿分享或上載到任何地方**。
 
@@ -90,20 +90,20 @@ Windows：由 [ffmpeg.org](https://ffmpeg.org/) 下載並加入 `PATH`。
 
 ## 2. 影片清單
 
-本專案版本**不使用 CSV**：Script 會直接遞迴掃描 `CONFIG["root_folder"]` 內所有影片檔案，並以**檔案名稱（不含副檔名）作為影片標題**。唯一例外是多段 VOB 合併後的影片，會以資料夾名稱為標題（見下文）。
+本專案版本**不使用 CSV**：Script 會直接遞迴掃描 `root_folder` 內所有影片檔案，並以**檔案名稱（不含副檔名）作為影片標題**。唯一例外是多段 VOB 合併後的影片，會以 `<folder> [combined]` 為標題（見下文）。
 
-支援的副檔名（可在 `CONFIG["video_extensions"]` 修改）：
+支援的副檔名（可在 `config/upload_config.json` 的 `video_extensions` 修改）：
 
 ```
 .mp4  .mov  .mkv  .avi  .m4v  .vob
 ```
 
-**AVI** 是 YouTube 官方支援的格式，預設會直接上傳。如果某個 AVI 使用了 YouTube 無法處理的編碼，可以在 `convert_config.json` 的 `convert_extensions` 加入 `".avi"`，先轉成 MP4 再上傳。
+**AVI** 是 YouTube 官方支援的格式，預設會直接上傳。如果某個 AVI 使用了 YouTube 無法處理的編碼，可以在 `config/convert_config.json` 的 `convert_extensions` 加入 `".avi"`，先轉成 MP4 再上傳。
 
 **VOB** 不在 YouTube 官方支援清單內，因此 `.vob` 預設會列入 `convert_extensions`。Script 會：
 
 - 將同一資料夾、同一 title set 的 `VTS_01_1.VOB`、`VTS_01_2.VOB`… 按編號合併成一段影片
-- 合併後的影片以資料夾名稱為標題（如果 VOB 放在 `VIDEO_TS` 內，會改用上一層資料夾名稱）
+- 合併後的影片以 `<folder> [combined]` 為標題（如果 VOB 放在 `VIDEO_TS` 內，會改用上一層資料夾名稱）
 - 略過 DVD 選單檔案（`*_0.VOB` 與 `VIDEO_TS.VOB`）
 - 單一 VOB 則沿用原本的檔名作為標題
 - 用 ffmpeg 將來源轉成單一 MP4（H.264/AAC）
@@ -125,7 +125,7 @@ Windows：由 [ffmpeg.org](https://ffmpeg.org/) 下載並加入 `PATH`。
 
 ### 2.1 Cut-list：剪走被 YouTube flag 嘅片段
 
-如果 YouTube 話某條片違規並列出要移除嘅時間範圍，喺 script 隔離建立 `cuts.json`：
+如果 YouTube 話某條片違規並列出要移除嘅時間範圍，喺 `config/` 建立 `cuts_config.json`：
 
 ```json
 {
@@ -140,11 +140,11 @@ Windows：由 [ffmpeg.org](https://ffmpeg.org/) 下載並加入 `PATH`。
 - Key 係影片標題：合併 group 用 `<folder> [combined]`，單檔用檔名（不含副檔名）。
 - Value 係要移除嘅時間範圍陣列，範圍係指**完整影片 timeline**（同 YouTube 顯示嗰條 timeline 一樣）。
 - 時間格式：`MM:SS` 或 `HH:MM:SS`；開始/結束用 `-`、`–`、`—`、`~` 或 `to` 分隔。
-- JSON 唔支援 comment；格式可參考 `cuts.example.json`。
+- JSON 唔支援 comment；格式可參考 `config/cuts_config.example.json`。
 - 剪輯會喺 ffmpeg 轉檔時進行。
 - 改 cut-list 會令轉檔 cache 失效。如果條片之前已上傳、來源檔案仍然存在，script 會重新處理並上傳修正版；舊嘅 YouTube 影片唔會自動刪除。
 - 本機來源檔案嘅刪除一律跟隨 `remove_local_after_upload`，設有 cut-list 都一樣。
-- `cuts.json` 已加入 `.gitignore`；格式可參考 `cuts.example.json`。
+- `config/cuts_config.json` 已加入 `.gitignore`；格式可參考 `config/cuts_config.example.json`。
 
 ---
 
@@ -152,21 +152,20 @@ Windows：由 [ffmpeg.org](https://ffmpeg.org/) 下載並加入 `PATH`。
 
 ### 3.1 修改設定
 
-設定分成兩個檔案。複製兩個範例，然後修改：
+設定分成幾個檔案。複製範例，然後修改：
 
 ```bash
-cp convert_config.example.json convert_config.json
-cp upload_config.example.json upload_config.json
+cp config/convert_config.example.json config/convert_config.json
+cp config/upload_config.example.json config/upload_config.json
 ```
 
-**`convert_config.json`** — 掃描乜嘢、點樣產生 golden MP4：
+**`config/convert_config.json`** — 掃描乜嘢、點樣產生 golden MP4：
 
 ```json
 {
   "root_folder": "/path/to/your/videos",
   "convert_extensions": [".vob"],
   "combine": true,
-  "export_converted_source": false,
   "remove_original_after_conversion": false,
   "remove_original_permanent": false
 }
@@ -177,11 +176,10 @@ cp upload_config.example.json upload_config.json
 | `root_folder` | 影片來源資料夾，會遞迴掃描所有子資料夾 |
 | `convert_extensions` | 先用 ffmpeg 轉成 MP4 的副檔名（預設 `[".vob"]`）；加入 `".avi"` 可強制 AVI 轉檔。Convert script 只會掃描呢啲副檔名 |
 | `combine` | `true`（預設）會合併 VOB title set，同一個 folder 內同一個 convert extension 嘅檔案亦會按 natural order 合併；`false` 每條片獨立 job |
-| `export_converted_source` | `true` = 將轉檔後嘅 MP4 保留喺來源旁邊（或 `VIDEO_TS` 上一層），並作為 source of record 重用 |
-| `remove_original_after_conversion` | `true` = 轉檔後 MP4 驗證成功就移除原始檔案（需要 `export_converted_source`） |
+| `remove_original_after_conversion` | `true` = 轉檔後 MP4 驗證成功就移除原始檔案；之後再行 convert 亦會清走已轉檔 job 嘅原檔 |
 | `remove_original_permanent` | 轉檔時清理嘅移除方式：`false` = 移至垃圾桶（預設）/ `true` = 永久刪除 |
 
-**`upload_config.json`** — 掃描、發佈（完全獨立）：
+**`config/upload_config.json`** — 掃描、發佈（完全獨立）：
 
 ```json
 {
@@ -209,11 +207,11 @@ cp upload_config.example.json upload_config.json
 | `remove_local_after_upload` | `true` = 上傳成功後移除本機來源；`false` = 保留（預設）。Golden 檔案永遠唔會被移除 |
 | `remove_local_permanent` | 上傳後清理嘅移除方式：`false` = 移至垃圾桶（可還原，預設）/ `true` = 永久刪除（無法還原） |
 
-兩個檔案都已加入 `.gitignore`，**不會被 commit**；即使你 fork 了這個 repo，也可以安全地放置自己的路徑。兩個 config **完全獨立**：`upload_config.json` 永遠唔會讀 `convert_config.json`。冇檔案時會用內建預設值。
+兩個檔案都放在 `config/`，並已加入 `.gitignore`，**不會被 commit**；即使你 fork 了這個 repo，也可以安全地放置自己的路徑。兩個 config **完全獨立**：`config/upload_config.json` 永遠唔會讀 `config/convert_config.json`。冇檔案時會用內建預設值。
 
 **檔案合併。** `combine` 決定轉檔前要唔要合併檔案。`true`（預設）會合併 VOB title set，同一個 folder 內同一個 convert extension 嘅檔案亦會按 natural order 合併（例如 `.m2ts` 分段）；`false` 每條片獨立。合併後嘅一組默認叫 `<folder> [combined]`，並會產生一個 golden MP4、一個 upload；用 `false` 時每個來源檔保留自己嘅 filename 做 title，各自有 golden MP4 同 upload。
 
-**轉檔來源與 golden source。** 開啟 `export_converted_source` 之後，轉檔後嘅檔案會成為 *golden source*：之後嘅 run 會由佢剪、上傳，唔再重新讀取原始檔案。有 cut 先會 re-encode。`remove_original_after_conversion` 係唯一會喺轉檔階段移除原始檔案嘅設定——`remove_local_after_upload` 永遠唔會刪除 golden 檔案。Golden job 用 recorded title 做 `cuts.json` key，所以 `cuts.json` 照樣有效。如果兩個來源會寫出同一個 golden 檔案，程式會直接報錯，唔會覆蓋。
+**轉檔來源與 golden source。** 轉檔後嘅檔案一定會成為 *golden source*：之後嘅 run 會由佢剪、上傳，唔再重新讀取原始檔案。有 cut 先會 re-encode。`remove_original_after_conversion` 係唯一會喺轉檔階段移除原始檔案嘅設定——`remove_local_after_upload` 永遠唔會刪除 golden 檔案。Golden job 用 recorded title 做 `config/cuts_config.json` key，所以 `cuts_config.json` 照樣有效。如果兩個來源會寫出同一個 golden 檔案，程式會直接報錯，唔會覆蓋。
 
 ### 3.2 執行
 
@@ -238,7 +236,7 @@ python3 batch_upload.py
 python3 convert_and_upload.py
 ```
 
-呢個會先用 `convert_config.json` 轉檔，再用 `upload_config.json` 上傳。
+呢個會先用 `config/convert_config.json` 轉檔，再用 `config/upload_config.json` 上傳。
 
 ### 3.3 只轉檔（唔上傳）
 
@@ -248,7 +246,7 @@ python3 convert_and_upload.py
 python3 convert_only.py
 ```
 
-呢條路徑**永遠唔會**進行 YouTube 授權、亦唔會上傳。只需要 `convert_config.json`，唔需要 `upload_config.json`。轉檔記錄會寫入 `convert_state.json`（同 `upload_state.json` 分開）。需要 `export_converted_source: true`。佢會將所有 `convert_extensions` 入面嘅 job 轉檔，跟隨 `remove_original_after_conversion` / `remove_original_permanent` 決定要唔要移走原檔，跳過已經有 golden source 嘅檔案，最後印出成功／跳過／失敗數量。Cuts 喺呢個模式會被忽略；golden source 一定係完整未剪版本。
+呢條路徑**永遠唔會**進行 YouTube 授權、亦唔會上傳。只需要 `config/convert_config.json`，唔需要 `config/upload_config.json`。轉檔記錄會寫入 `state/convert_state.json`（同 `state/upload_state.json` 分開）。佢會將所有 `convert_extensions` 入面嘅 job 轉檔，跟隨 `remove_original_after_conversion` / `remove_original_permanent` 決定要唔要移走原檔，跳過已經有 golden source 嘅檔案（`remove_original_after_conversion` 開啟時會順便清走呢啲 job 嘅原檔），最後印出成功／跳過／失敗數量。Cuts 喺呢個模式會被忽略；golden source 一定係完整未剪版本。
 
 ### 3.4 關於「草稿」與發佈
 
@@ -262,7 +260,7 @@ YouTube API **沒有「草稿」概念**，上傳完成後影片即會以 `priva
 
 ### 3.5 上傳後自動清理本機檔案
 
-在 `upload_config.json` 設定：
+在 `config/upload_config.json` 設定：
 
 ```json
 "remove_local_after_upload": true,
@@ -295,41 +293,46 @@ YouTube API **沒有「草稿」概念**，上傳完成後影片即會以 `priva
 
 ### 4.1 `upload_state.json` 與 `convert_state.json`
 
-上傳 script 會在同一資料夾產生 `upload_state.json`，記錄每條已上傳影片。轉檔進度（golden source index）會分開存放喺 `convert_state.json`，令 convert 同 upload script 完全獨立：
+兩個檔案都放喺 `state/`。`upload_state.json` 記錄每條已上傳影片；`convert_state.json` 記錄 golden source index。兩者完全獨立：
 
 ```json
 {
-  "uploads": {
-    "/path/to/your/videos/My Video/VTS_01_1.VOB": {
-      "size": 4596858880,
-      "mtime": 1700000000.0,
-      "local_removed": true,
-      "parts": [
-        {
-          "upload_size": 566007357,
-          "bytes_sent": 566007357,
-          "video_id": "xxxxxxxxxxx",
-          "playlist_added": true
-        }
-      ]
-    }
+  "/path/to/videos/Folder [combined].mp4": {
+    "size": 4596858880,
+    "mtime": 1700000000.0,
+    "cuts": [[10, 20]],
+    "local_removed": false,
+    "video_id": "xxxxxxxxxxx",
+    "playlist_added": true,
+    "bytes_sent": 566007357,
+    "resumable_uri": null,
+    "upload_size": 566007357
   }
 }
 ```
 
-- `parts` 保存已上傳影片嘅 entry（為兼容舊 state 保留）
+```json
+{
+  "/path/to/videos/Folder [combined].mp4": {
+    "title": "Folder [combined]",
+    "source_files": ["/path/to/videos/Folder/VTS_01_1.VOB", "..."]
+  }
+}
+```
+
+- `upload_state.json` 係 flat map：來源路徑 → 單一上傳 entry
 - 每上傳完一個分塊就會更新一次
 - 已完成上傳的影片，下次執行會直接跳過
 - 未完成的上傳會保存 `resumable_uri` 與 `bytes_sent`，下次執行自動續傳
 - 如果檔案大小或修改時間改變，會當作新版本重新上傳
-- 舊版本寫落嘅 state（頂層 `video_id`）會自動遷移
+- 舊版 state（有 `uploads`、`parts`、`golden_sources` 或頂層 `video_id` 包裝）載入時會自動遷移
 
 ### 4.2 中途斷了怎麼辦？
 
 直接再執行一次：
 
 ```bash
-python batch_upload.py
+python3 batch_upload.py
 ```
 
 - 已完成的影片：跳過
@@ -340,8 +343,8 @@ python batch_upload.py
 
 ### 4.3 強制重新上傳
 
-- 重新上傳**某一條**影片：在 `upload_state.json` 刪除該檔案的 entry
-- **全部**重新上傳：刪除整個 `upload_state.json`
+- 重新上傳**某一條**影片：在 `state/upload_state.json` 刪除該檔案的 entry
+- **全部**重新上傳：刪除整個 `state/upload_state.json`
 
 （刪除前請先關閉正在執行的 Script。）
 
@@ -380,7 +383,7 @@ ffmpeg -version
 
 ### AVI 上傳失敗或播放有問題
 
-AVI 是 YouTube 官方支援的格式，但 AVI 內含的某些編碼未必支援。在 `convert_config.json` 的 `convert_extensions` 加入 `".avi"`，`convert_only.py` 便會先將 AVI 轉成 MP4（H.264/AAC）再上傳。
+AVI 是 YouTube 官方支援的格式，但 AVI 內含的某些編碼未必支援。在 `config/convert_config.json` 的 `convert_extensions` 加入 `".avi"`，`convert_only.py` 便會先將 AVI 轉成 MP4（H.264/AAC）再上傳。
 
 ### VOB 轉檔很慢或佔用大量磁碟空間
 
@@ -425,23 +428,25 @@ youtube_batch_uploader/
 │   ├── golden.py         # Golden source 偵測與共存規則
 │   ├── pipeline.py       # 來源準備與媒體選擇
 │   ├── config.py         # convert／upload config 載入與檔案路徑
-│   ├── cuts.py           # cuts.json 解析與 part offset
-│   ├── state.py          # upload_state.json 進度記錄
+│   ├── cuts.py           # cuts_config.json 解析與 lookup
+│   ├── state.py          # upload／convert state 進度記錄
 │   ├── files.py          # 掃描、合併與本機檔案清理
 │   ├── ffmpeg.py         # 探測、轉檔與 cache
 │   └── youtube_api.py    # OAuth、播放清單與續傳上傳
 ├── tests/                # 單元測試（python3 -m unittest）
-├── convert_config.example.json # 轉檔設定範例（可 commit）
-├── upload_config.example.json  # 上傳設定範例（可 commit）
-├── convert_config.json   # 你的本機轉檔設定（不會被 commit）
-├── upload_config.json    # 你的本機上傳設定（不會被 commit）
+├── config/               # 設定（範例可 commit；本機設定不會 commit）
+│   ├── convert_config.example.json # 轉檔設定範例
+│   ├── upload_config.example.json  # 上傳設定範例
+│   ├── cuts_config.example.json    # cut-list 範例
+│   ├── convert_config.json         # 你的本機轉檔設定
+│   ├── upload_config.json          # 你的本機上傳設定
+│   └── cuts_config.json            # 你的本機 cut-list
 ├── client_secrets.json   # OAuth 憑證（自行下載，請勿分享）
 ├── token.pickle          # 登入 token（首次執行後產生，請勿分享）
-├── upload_state.json     # 上傳進度記錄（自動產生）
-├── convert_state.json    # 轉檔 golden source 記錄（自動產生）
-├── cuts.json             # 本機 cut-list（不會 commit）
-├── cuts.example.json     # cut-list 範例
-├── .converted/           # ffmpeg 轉檔暫存（自動產生，可安全刪除）
+├── .converted/           # ffmpeg 轉檔暫存（可安全刪除）
+├── state/                # 執行時產生嘅檔案（不會 commit）
+│   ├── upload_state.json
+│   └── convert_state.json
 ├── README.md             # 英文說明文件
 └── README.zh-TW.md       # 繁體中文說明文件
 ```
@@ -460,6 +465,6 @@ python3 -m unittest
 
 - `client_secrets.json`（OAuth client secret）
 - `token.pickle`（等同於你的登入授權）
-- `upload_state.json`（包含你本機的路徑與影片 ID）
+- `state/upload_state.json`（包含你本機的路徑與影片 ID）
 
 如果憑證外洩，請立即前往 Google Cloud Console 刪除該 OAuth client ID 並重新建立。

@@ -36,10 +36,14 @@ def get_authenticated_service():
             credentials.refresh(Request())
         else:
             if not CLIENT_SECRETS_FILE.exists():
-                sys.exit(f"[錯誤] 找不到憑證檔案 {CLIENT_SECRETS_FILE}，請確認檔案放在同一目錄。")
+                sys.exit(
+                    f"[錯誤] 找不到憑證檔案 {CLIENT_SECRETS_FILE}，"
+                    "請確認檔案放在專案根目錄。"
+                )
             flow = InstalledAppFlow.from_client_secrets_file(str(CLIENT_SECRETS_FILE), SCOPES)
             credentials = flow.run_local_server(port=0)
 
+        TOKEN_PICKLE_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(TOKEN_PICKLE_FILE, 'wb') as token:
             pickle.dump(credentials, token)
 

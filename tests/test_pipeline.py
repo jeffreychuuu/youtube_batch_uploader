@@ -13,19 +13,10 @@ from youtube_uploader.pipeline import (
 
 
 class PrepareSourceTests(unittest.TestCase):
-    def test_without_export_returns_convert_pipeline(self):
-        job = {'title': 'Folder', 'files': [Path('/a/VTS_01_1.VOB')], 'convert': True}
-        plan = prepare_source(job, {'uploads': {}, 'golden_sources': {}}, {
-            'export_converted_source': False,
-        })
-        self.assertEqual(plan.mode, 'convert_pipeline')
-
     def test_non_convert_returns_single_source(self):
         job = {'title': 'Clip', 'files': [Path('/a/Clip.mp4')], 'convert': False}
-        plan = prepare_source(job, {'uploads': {}, 'golden_sources': {}}, {
-            'export_converted_source': True,
-        })
-        self.assertEqual(plan.mode, 'single')
+        plan = prepare_source(job, {}, {})
+        self.assertFalse(plan.golden)
         self.assertEqual(plan.files, [Path('/a/Clip.mp4')])
 
     @patch('youtube_uploader.pipeline.save_convert_state')
@@ -46,16 +37,14 @@ class PrepareSourceTests(unittest.TestCase):
                 'files': sources,
                 'convert': True,
             }
-            state = {'uploads': {}, 'golden_sources': {}}
+            state = {}
             plan = prepare_source(job, state, {
-                'export_converted_source': True,
                 'remove_original_after_conversion': False,
             })
-        self.assertEqual(plan.mode, 'single')
         self.assertTrue(plan.golden)
         self.assertEqual(plan.key, str(target.resolve()))
         convert.assert_called_once_with(sources)
-        self.assertIn(str(target.resolve()), state['golden_sources'])
+        self.assertIn(str(target.resolve()), state)
         save.assert_called_once_with(state)
 
     @patch('youtube_uploader.pipeline.save_convert_state')
@@ -75,16 +64,12 @@ class PrepareSourceTests(unittest.TestCase):
                 'convert': True,
             }
             state = {
-                'uploads': {},
-                'golden_sources': {
                     str(target.resolve()): {
                         'title': 'Folder',
                         'source_files': [str(job['files'][0].resolve())],
                     }
-                },
             }
             plan = prepare_source(job, state, {
-                'export_converted_source': True,
                 'remove_original_after_conversion': False,
             })
         self.assertTrue(plan.golden)
@@ -105,18 +90,14 @@ class PrepareSourceTests(unittest.TestCase):
             path_mock.return_value = target
             job = {'title': 'Folder', 'files': [kept], 'convert': True}
             state = {
-                'uploads': {},
-                'golden_sources': {
                     str(target.resolve()): {
                         'title': 'Folder',
                         'source_files': [
                             str(removed.resolve()), str(kept.resolve())
                         ],
                     }
-                },
             }
             plan = prepare_source(job, state, {
-                'export_converted_source': True,
                 'remove_original_after_conversion': False,
             })
         self.assertTrue(plan.golden)
@@ -141,17 +122,13 @@ class PrepareSourceTests(unittest.TestCase):
                 'convert': True,
             }
             state = {
-                'uploads': {},
-                'golden_sources': {
                     str(target.resolve()): {
                         'title': 'Folder',
                         'source_files': [str(other.resolve())],
                     }
-                },
             }
             with self.assertRaises(SystemExit):
                 prepare_source(job, state, {
-                    'export_converted_source': True,
                     'remove_original_after_conversion': False,
                 })
         convert.assert_not_called()
@@ -170,8 +147,7 @@ class PrepareSourceTests(unittest.TestCase):
                 'convert': True,
             }
             with self.assertRaises(SystemExit):
-                prepare_source(job, {'uploads': {}, 'golden_sources': {}}, {
-                    'export_converted_source': True,
+                prepare_source(job, {}, {
                     'remove_original_after_conversion': False,
                 })
         convert.assert_not_called()
@@ -192,8 +168,7 @@ class PrepareSourceTests(unittest.TestCase):
             sources = [Path(tmp) / 'VTS_01_1.VOB', Path(tmp) / 'VTS_01_2.VOB']
             job = {'title': 'Folder', 'files': sources, 'convert': True}
             with self.assertRaises(RuntimeError):
-                prepare_source(job, {'uploads': {}, 'golden_sources': {}}, {
-                    'export_converted_source': True,
+                prepare_source(job, {}, {
                     'remove_original_after_conversion': False,
                 })
         remove.assert_called_once_with(sources)
@@ -215,8 +190,7 @@ class PrepareSourceTests(unittest.TestCase):
             for source in sources:
                 source.touch()
             job = {'title': 'Folder', 'files': sources, 'convert': True}
-            prepare_source(job, {'uploads': {}, 'golden_sources': {}}, {
-                'export_converted_source': True,
+            prepare_source(job, {}, {
                 'remove_original_after_conversion': True,
                 'remove_original_permanent': True,
             })
@@ -227,21 +201,14 @@ class PrepareSourceTests(unittest.TestCase):
 class MediaPartsTests(unittest.TestCase):
     @patch('youtube_uploader.pipeline.convert_to_mp4',
            return_value=Path('/out/p1.mp4'))
-    def test_convert_pipeline_uses_convert_to_mp4(self, convert):
-        plan = SourcePlan([Path('/a.VOB')], '/a.VOB', 'convert_pipeline', False)
-        media_parts_for_plan(plan, [(1, 2)])
-        convert.assert_called_once_with(plan.files, [(1, 2)])
-
-    @patch('youtube_uploader.pipeline.convert_to_mp4',
-           return_value=Path('/out/p1.mp4'))
-    def test_single_with_cuts_reencodes(self, convert):
-        plan = SourcePlan([Path('/a.mp4')], '/a.mp4', 'single', True)
+    def test_cuts_reencode(self, convert):
+        plan = SourcePlan([Path('/a.mp4')], '/a.mp4', True)
         media_parts_for_plan(plan, [(1, 2)])
         convert.assert_called_once_with(plan.files, [(1, 2)])
 
     @patch('youtube_uploader.pipeline.convert_to_mp4')
-    def test_single_without_cuts_uploads_as_is(self, convert):
-        plan = SourcePlan([Path('/a.mp4')], '/a.mp4', 'single', True)
+    def test_without_cuts_uploads_as_is(self, convert):
+        plan = SourcePlan([Path('/a.mp4')], '/a.mp4', True)
         parts = media_parts_for_plan(plan, [])
         self.assertEqual(parts, [Path('/a.mp4')])
         convert.assert_not_called()
@@ -249,25 +216,25 @@ class MediaPartsTests(unittest.TestCase):
 
 class CleanupAndRemovalTests(unittest.TestCase):
     @patch('youtube_uploader.pipeline.remove_cached_conversion')
-    def test_convert_pipeline_removes_conversion_cache(self, remove):
-        plan = SourcePlan([Path('/a.VOB')], '/a.VOB', 'convert_pipeline', False)
+    def test_cuts_remove_conversion_cache(self, remove):
+        plan = SourcePlan([Path('/a.mp4')], '/a.mp4', True)
         cleanup_plan_cache(plan, [(1, 2)])
         remove.assert_called_once_with(plan.files, [(1, 2)])
 
+    @patch('youtube_uploader.pipeline.remove_cached_conversion')
+    def test_without_cuts_keeps_conversion_cache(self, remove):
+        plan = SourcePlan([Path('/a.mp4')], '/a.mp4', True)
+        cleanup_plan_cache(plan, [])
+        remove.assert_not_called()
+
     def test_should_remove_sources_never_removes_golden(self):
-        plan = SourcePlan([Path('/a.mp4')], '/a.mp4', 'single', True)
+        plan = SourcePlan([Path('/a.mp4')], '/a.mp4', True)
         self.assertFalse(
             should_remove_sources(plan, {'remove_local_after_upload': True})
         )
 
     def test_should_remove_sources_for_non_golden_single(self):
-        plan = SourcePlan([Path('/a.mp4')], '/a.mp4', 'single', False)
-        self.assertTrue(
-            should_remove_sources(plan, {'remove_local_after_upload': True})
-        )
-
-    def test_should_remove_sources_for_convert_pipeline(self):
-        plan = SourcePlan([Path('/a.VOB')], '/a.VOB', 'convert_pipeline', False)
+        plan = SourcePlan([Path('/a.mp4')], '/a.mp4', False)
         self.assertTrue(
             should_remove_sources(plan, {'remove_local_after_upload': True})
         )
@@ -289,9 +256,8 @@ class GoldenSmokeTests(unittest.TestCase):
                 str(source),
             ], check=True)
             job = {'title': 'Source', 'files': [source], 'convert': True}
-            state = {'uploads': {}, 'golden_sources': {}}
+            state = {}
             config = {
-                'export_converted_source': True,
                 'remove_original_after_conversion': False,
                 'remove_original_permanent': False,
             }
@@ -301,7 +267,7 @@ class GoldenSmokeTests(unittest.TestCase):
                 target = Path(tmp) / 'Source.mp4'
                 self.assertTrue(target.exists())
                 self.assertTrue(plan.golden)
-                self.assertIn(str(target.resolve()), state['golden_sources'])
+                self.assertIn(str(target.resolve()), state)
                 verify_video(target)
             finally:
                 remove_cached_conversion([source])

@@ -1,4 +1,4 @@
-"""Parsing and lookup of cut ranges from cuts.json."""
+"""Parsing and lookup of cut ranges from cuts_config.json."""
 import json
 import re
 import sys
@@ -39,7 +39,7 @@ def normalise_cuts(cuts):
 
 
 def parse_cut_ranges(items, key):
-    """Parse a list of 'start-end' strings from cuts.json"""
+    """Parse a list of 'start-end' strings from cuts_config.json"""
     if not isinstance(items, list):
         sys.exit(f"[錯誤] {CUTS_FILE.name} 內 \"{key}\" 必須係時間範圍陣列。")
 
@@ -62,7 +62,7 @@ def parse_cut_ranges(items, key):
 
 
 def load_cuts(cuts_file=CUTS_FILE):
-    """Load cuts.json as {title: [(start, end), ...]}"""
+    """Load cuts_config.json as {title: [(start, end), ...]}"""
     if not cuts_file.exists():
         return {}
     try:
@@ -99,18 +99,11 @@ def apply_entry_settings(entry, cuts):
 
 
 def print_old_video_links(entry):
-    """Warn about existing YouTube videos before a re-upload"""
-    old_ids = []
-    if entry.get("video_id"):
-        old_ids.append(entry["video_id"])
-    for part in entry.get("parts", []) or []:
-        video_id = part.get("video_id")
-        if video_id and video_id not in old_ids:
-            old_ids.append(video_id)
-    if old_ids:
+    """Warn about an existing YouTube video before a re-upload"""
+    video_id = entry.get("video_id")
+    if video_id:
         print("  [提示] 舊版本仍然喺 YouTube，確認新片上傳成功後請手動刪除：")
-        for video_id in old_ids:
-            print(f"    - https://youtu.be/{video_id}")
+        print(f"    - https://youtu.be/{video_id}")
 
 
 def cuts_variant(cuts):

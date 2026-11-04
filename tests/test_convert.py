@@ -9,22 +9,16 @@ BASE_CONFIG = {
     'root_folder': None,
     'convert_extensions': ['.vob'],
     'combine': True,
-    'export_converted_source': True,
     'remove_original_after_conversion': False,
     'remove_original_permanent': False,
 }
 
 
 class ConvertOnlyTests(unittest.TestCase):
-    def test_requires_export_converted_source(self):
-        config = dict(BASE_CONFIG, export_converted_source=False)
-        with self.assertRaises(SystemExit):
-            run_convert_only(config)
-
     @patch('youtube_uploader.convert.save_convert_state')
     @patch('youtube_uploader.convert.prepare_source')
     @patch('youtube_uploader.convert.load_convert_state',
-           return_value={'golden_sources': {}})
+           return_value={})
     def test_converts_only_convert_extensions(self, load_state, prepare, save):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp) / 'Folder'
@@ -51,14 +45,12 @@ class ConvertOnlyTests(unittest.TestCase):
             golden = folder / 'Folder [combined].mp4'
             golden.touch()
             load_state.return_value = {
-                'golden_sources': {
-                    str(golden.resolve()): {
-                        'title': 'Folder',
-                        'source_files': [
-                            str((folder / 'VTS_01_1.VOB').resolve()),
-                            str((folder / 'VTS_01_2.VOB').resolve()),
-                        ],
-                    }
+                str(golden.resolve()): {
+                    'title': 'Folder',
+                    'source_files': [
+                        str((folder / 'VTS_01_1.VOB').resolve()),
+                        str((folder / 'VTS_01_2.VOB').resolve()),
+                    ],
                 },
             }
             summary = run_convert_only(dict(BASE_CONFIG, root_folder=tmp))
@@ -66,10 +58,42 @@ class ConvertOnlyTests(unittest.TestCase):
         prepare.assert_not_called()
 
     @patch('youtube_uploader.convert.save_convert_state')
+    @patch('youtube_uploader.convert.load_convert_state')
+    def test_removes_originals_for_already_converted_jobs(
+        self, load_state, save
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / 'Folder'
+            folder.mkdir()
+            sources = [folder / 'VTS_01_1.VOB', folder / 'VTS_01_2.VOB']
+            for source in sources:
+                source.touch()
+            golden = folder / 'Folder [combined].mp4'
+            golden.touch()
+            load_state.return_value = {
+                str(golden.resolve()): {
+                    'title': 'Folder',
+                    'source_files': [
+                        str(source.resolve()) for source in sources
+                    ],
+                },
+            }
+            config = dict(
+                BASE_CONFIG,
+                root_folder=tmp,
+                remove_original_after_conversion=True,
+                remove_original_permanent=True,
+            )
+            summary = run_convert_only(config)
+            self.assertTrue(golden.exists())
+            self.assertFalse(any(source.exists() for source in sources))
+        self.assertEqual(summary, {'converted': 0, 'skipped': 1, 'failed': 0})
+
+    @patch('youtube_uploader.convert.save_convert_state')
     @patch('youtube_uploader.convert.prepare_source',
            side_effect=RuntimeError('boom'))
     @patch('youtube_uploader.convert.load_convert_state',
-           return_value={'golden_sources': {}})
+           return_value={})
     def test_counts_failures_and_continues(self, load_state, prepare, save):
         with tempfile.TemporaryDirectory() as tmp:
             for name in ('A', 'B'):

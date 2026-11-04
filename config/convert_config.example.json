@@ -1,8 +1,9 @@
 {
   "root_folder": "/path/to/your/videos",
-  "convert_extensions": [".vob"],
+  "convert_extensions": [
+    ".vob"
+  ],
   "combine": true,
-  "export_converted_source": false,
   "remove_original_after_conversion": false,
   "remove_original_permanent": false
 }

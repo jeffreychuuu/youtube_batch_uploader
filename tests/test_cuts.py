@@ -69,7 +69,7 @@ class ParseCutRangesTests(unittest.TestCase):
 class LoadCutsTests(unittest.TestCase):
     def _load(self, data):
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / 'cuts.json'
+            path = Path(tmp) / 'cuts_config.json'
             path.write_text(json.dumps(data), encoding='utf-8')
             return load_cuts(path)
 

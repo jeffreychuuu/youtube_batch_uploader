@@ -12,9 +12,7 @@ class GoldenHelperTests(unittest.TestCase):
     def test_marks_recorded_single_file_job(self):
         jobs = [{'title': 'Folder', 'files': [Path('/a/Folder.mp4')]}]
         state = {
-            'golden_sources': {
-                str(Path('/a/Folder.mp4').resolve()): {'title': 'Folder'}
-            }
+            str(Path('/a/Folder.mp4').resolve()): {'title': 'Folder'}
         }
         mark_golden_jobs(jobs, state)
         self.assertTrue(jobs[0]['golden'])
@@ -33,11 +31,9 @@ class GoldenHelperTests(unittest.TestCase):
                 'display_name': 'Folder',
             }]
             state = {
-                'golden_sources': {
-                    str(golden.resolve()): {
-                        'title': 'Folder',
-                        'source_files': [str(vob.resolve())],
-                    }
+                str(golden.resolve()): {
+                    'title': 'Folder',
+                    'source_files': [str(vob.resolve())],
                 }
             }
             skipped = skip_converted_source_jobs(jobs, state)
@@ -60,11 +56,9 @@ class GoldenHelperTests(unittest.TestCase):
                 'display_name': 'B',
             }]
             state = {
-                'golden_sources': {
-                    str(golden.resolve()): {
-                        'title': 'Folder',
-                        'source_files': [str(source_a.resolve())],
-                    }
+                str(golden.resolve()): {
+                    'title': 'Folder',
+                    'source_files': [str(source_a.resolve())],
                 }
             }
             with self.assertRaises(SystemExit):
@@ -85,11 +79,9 @@ class GoldenHelperTests(unittest.TestCase):
                 'display_name': 'Folder',
             }]
             state = {
-                'golden_sources': {
-                    str(golden.resolve()): {
-                        'title': 'Folder',
-                        'source_files': [str(path.resolve()) for path in sources],
-                    }
+                str(golden.resolve()): {
+                    'title': 'Folder',
+                    'source_files': [str(path.resolve()) for path in sources],
                 }
             }
             skipped = skip_converted_source_jobs(jobs, state)
@@ -111,13 +103,11 @@ class GoldenHelperTests(unittest.TestCase):
                 'display_name': 'Folder',
             }]
             state = {
-                'golden_sources': {
-                    str(golden.resolve()): {
-                        'title': 'Folder',
-                        'source_files': [
-                            str(path.resolve()) for path in recorded
-                        ],
-                    }
+                str(golden.resolve()): {
+                    'title': 'Folder',
+                    'source_files': [
+                        str(path.resolve()) for path in recorded
+                    ],
                 }
             }
             with self.assertRaises(SystemExit):
@@ -137,11 +127,9 @@ class GoldenHelperTests(unittest.TestCase):
                 'display_name': 'Folder.mkv',
             }]
             state = {
-                'golden_sources': {
-                    str(golden.resolve()): {
-                        'title': 'Folder',
-                        'source_files': [str(source.resolve())],
-                    }
+                str(golden.resolve()): {
+                    'title': 'Folder',
+                    'source_files': [str(source.resolve())],
                 }
             }
             skipped = skip_converted_source_jobs(jobs, state)

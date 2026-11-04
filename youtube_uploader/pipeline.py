@@ -14,7 +14,6 @@ from .state import record_golden_source, save_convert_state
 class SourcePlan:
     files: list
     key: str
-    mode: str          # "convert_pipeline" or "single"
     golden: bool
 
 
@@ -22,15 +21,13 @@ def prepare_source(job, state, config):
     """Convert a source job into the files and state key to upload from"""
     files = job["files"]
     if job.get("golden"):
-        return SourcePlan(files, str(files[0].resolve()), "single", True)
+        return SourcePlan(files, str(files[0].resolve()), True)
     if not job["convert"]:
-        return SourcePlan(files, str(files[0].resolve()), "single", False)
-    if not config["export_converted_source"]:
-        return SourcePlan(files, str(files[0].resolve()), "convert_pipeline", False)
+        return SourcePlan(files, str(files[0].resolve()), False)
 
     target = converted_source_path(job)
     golden_key = str(target.resolve())
-    recorded = state.get("golden_sources", {}).get(golden_key)
+    recorded = state.get(golden_key)
     if target.exists():
         if not recorded:
             raise SystemExit(
@@ -45,7 +42,7 @@ def prepare_source(job, state, config):
             )
         job["files"] = [target]
         job["golden"] = True
-        return SourcePlan([target], golden_key, "single", True)
+        return SourcePlan([target], golden_key, True)
 
     converted = convert_to_mp4(files)
     try:
@@ -58,29 +55,32 @@ def prepare_source(job, state, config):
 
     record_golden_source(state, target, job["title"], files)
     save_convert_state(state)
-
-    if config["remove_original_after_conversion"]:
-        for source_file in files:
-            if source_file.exists():
-                remove_local_file(
-                    source_file, config["remove_original_permanent"]
-                )
+    remove_original_sources(files, config)
 
     job["files"] = [target]
     job["golden"] = True
-    return SourcePlan([target], golden_key, "single", True)
+    return SourcePlan([target], golden_key, True)
+
+
+def remove_original_sources(files, config):
+    """Remove source files once their verified golden copy exists"""
+    if not config["remove_original_after_conversion"]:
+        return
+    for source_file in files:
+        if source_file.exists():
+            remove_local_file(source_file, config["remove_original_permanent"])
 
 
 def media_parts_for_plan(plan, cuts):
     """Return the media files to upload for a prepared plan"""
-    if plan.mode == "convert_pipeline" or cuts:
+    if cuts:
         return [convert_to_mp4(plan.files, cuts)]
     return plan.files
 
 
 def cleanup_plan_cache(plan, cuts):
     """Remove the conversion cache after a successful upload"""
-    if plan.mode == "convert_pipeline" or cuts:
+    if cuts:
         remove_cached_conversion(plan.files, cuts)
 
 
