@@ -36,6 +36,14 @@ def folder_display_name(folder):
     return folder.name
 
 
+def converted_source_path(job):
+    """Path of the converted MP4, next to the source (or the VIDEO_TS parent)"""
+    folder = job["files"][0].parent
+    if folder.name.upper() == 'VIDEO_TS' and folder.parent != folder:
+        folder = folder.parent
+    return folder / f"{job['title']}.mp4"
+
+
 def build_upload_jobs(video_files, convert_extensions):
     """Turn scanned files into upload jobs, merging multi-segment VOB files.
 
