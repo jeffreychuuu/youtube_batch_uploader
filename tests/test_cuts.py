@@ -169,6 +169,15 @@ class NamespacedCutsTests(unittest.TestCase):
         job = {'title': 'Folder', 'files': [Path('/a/Folder.mp4')], 'golden': True}
         self.assertEqual(job_cut_key(job), ('folders', 'Folder'))
 
+    def test_job_cut_key_honours_cut_namespace(self):
+        job = {
+            'title': 'Clip',
+            'files': [Path('/a/Clip.mp4')],
+            'golden': True,
+            'cut_namespace': 'files',
+        }
+        self.assertEqual(job_cut_key(job), ('files', 'Clip'))
+
 
 class LoadCutsTests(unittest.TestCase):
     def _load(self, data):

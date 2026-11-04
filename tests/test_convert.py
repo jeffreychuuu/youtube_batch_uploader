@@ -53,7 +53,13 @@ class ConvertOnlyTests(unittest.TestCase):
             load_state.return_value = {
                 'uploads': {},
                 'golden_sources': {
-                    str(golden.resolve()): {'title': 'Folder'}
+                    str(golden.resolve()): {
+                        'title': 'Folder',
+                        'source_files': [
+                            str((folder / 'VTS_01_1.VOB').resolve()),
+                            str((folder / 'VTS_01_2.VOB').resolve()),
+                        ],
+                    }
                 },
             }
             summary = run_convert_only(dict(BASE_CONFIG, root_folder=tmp))

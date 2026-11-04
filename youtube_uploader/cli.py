@@ -19,7 +19,10 @@ from .cuts import (
 )
 from .ffmpeg import remove_cached_conversion
 from .files import build_upload_jobs, remove_local_file, scan_video_files
-from .golden import mark_golden_jobs, skip_converted_source_jobs
+from .golden import (
+    ensure_unique_converted_targets, mark_golden_jobs,
+    skip_converted_source_jobs,
+)
 from .pipeline import (
     cleanup_plan_cache,
     media_parts_for_plan,
@@ -69,6 +72,7 @@ def main():
     if not jobs:
         print(f"[提示] 在 {config['root_folder']} 內找不到相容的影片檔案。")
         return
+    ensure_unique_converted_targets(jobs)
 
     print(
         f"[掃描完成] 共找到 {len(video_files)} 個影片檔案，"

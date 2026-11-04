@@ -204,7 +204,7 @@ cp config.example.json config.json
 | `remove_original_after_conversion` | `true` = 轉檔後 MP4 驗證成功就移除原始檔案（需要 `export_converted_source`） |
 | `remove_original_permanent` | 轉檔時清理嘅移除方式：`false` = 移至垃圾桶（預設）/ `true` = 永久刪除。同 `remove_local_permanent` 分開 |
 
-**轉檔來源與 golden source。** 開啟 `export_converted_source` 之後，轉檔後嘅檔案會成為 *golden source*：之後嘅 run 會由佢剪、分段、上傳，唔再重新讀取原始檔案。冇 cut 嘅上傳會用 stream copy 分段（快、唔重新 encode）；有 cut 嘅上傳先會 re-encode。`remove_original_after_conversion` 係唯一會喺轉檔階段移除原始檔案嘅設定——`remove_local_after_upload` 永遠唔會刪除 golden 檔案。
+**轉檔來源與 golden source。** 開啟 `export_converted_source` 之後，轉檔後嘅檔案會成為 *golden source*：之後嘅 run 會由佢剪、分段、上傳，唔再重新讀取原始檔案。冇 cut 嘅上傳會用 stream copy 分段（快、唔重新 encode）；有 cut 嘅上傳先會 re-encode。`remove_original_after_conversion` 係唯一會喺轉檔階段移除原始檔案嘅設定——`remove_local_after_upload` 永遠唔會刪除 golden 檔案。Golden job 會沿用來源嘅 cuts namespace（合併 VOB 用 `folders`，單檔用 `files`），所以現有 `cuts.json` key 喺轉檔後照樣有效。如果兩個來源會寫出同一個 golden 檔案，程式會直接報錯，唔會覆蓋。
 
 ### 3.2 執行
 

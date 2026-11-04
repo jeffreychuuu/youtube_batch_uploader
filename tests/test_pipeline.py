@@ -54,6 +54,7 @@ class PrepareSourceTests(unittest.TestCase):
         self.assertEqual(plan.mode, 'single')
         self.assertTrue(plan.golden)
         self.assertEqual(plan.key, str(target.resolve()))
+        self.assertEqual(job['cut_namespace'], 'files')
         convert.assert_called_once_with(sources, 0, [])
         self.assertIn(str(target.resolve()), state['golden_sources'])
         save.assert_called_once_with(state)
@@ -76,14 +77,96 @@ class PrepareSourceTests(unittest.TestCase):
             }
             state = {
                 'uploads': {},
-                'golden_sources': {str(target.resolve()): {'title': 'Folder'}},
+                'golden_sources': {
+                    str(target.resolve()): {
+                        'title': 'Folder',
+                        'source_files': [str(job['files'][0].resolve())],
+                    }
+                },
             }
             plan = prepare_source(job, state, {
                 'export_converted_source': True,
                 'remove_original_after_conversion': False,
             })
         self.assertTrue(plan.golden)
+        self.assertEqual(job['cut_namespace'], 'files')
         convert.assert_not_called()
+
+    @patch('youtube_uploader.pipeline.save_state')
+    @patch('youtube_uploader.pipeline.verify_video')
+    @patch('youtube_uploader.pipeline.convert_to_mp4')
+    @patch('youtube_uploader.pipeline.converted_source_path')
+    def test_reuse_refuses_provenance_mismatch(
+        self, path_mock, convert, verify, save
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / 'Folder.mp4'
+            target.touch()
+            other = Path(tmp) / 'Other.VOB'
+            other.touch()
+            path_mock.return_value = target
+            job = {
+                'title': 'Folder',
+                'files': [Path(tmp) / 'Folder.VOB'],
+                'convert': True,
+            }
+            state = {
+                'uploads': {},
+                'golden_sources': {
+                    str(target.resolve()): {
+                        'title': 'Folder',
+                        'source_files': [str(other.resolve())],
+                    }
+                },
+            }
+            with self.assertRaises(SystemExit):
+                prepare_source(job, state, {
+                    'export_converted_source': True,
+                    'remove_original_after_conversion': False,
+                })
+        convert.assert_not_called()
+
+    @patch('youtube_uploader.pipeline.save_state')
+    @patch('youtube_uploader.pipeline.convert_to_mp4')
+    @patch('youtube_uploader.pipeline.converted_source_path')
+    def test_unrecorded_existing_target_stops(self, path_mock, convert, save):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / 'Folder.mp4'
+            target.touch()
+            path_mock.return_value = target
+            job = {
+                'title': 'Folder',
+                'files': [Path(tmp) / 'Folder.VOB'],
+                'convert': True,
+            }
+            with self.assertRaises(SystemExit):
+                prepare_source(job, {'uploads': {}, 'golden_sources': {}}, {
+                    'export_converted_source': True,
+                    'remove_original_after_conversion': False,
+                })
+        convert.assert_not_called()
+
+    @patch('youtube_uploader.pipeline.remove_cached_conversion')
+    @patch('youtube_uploader.pipeline.save_state')
+    @patch('youtube_uploader.pipeline.verify_video',
+           side_effect=RuntimeError('bad output'))
+    @patch('youtube_uploader.pipeline.convert_to_mp4',
+           return_value=[Path('/cache/x.mp4')])
+    @patch('youtube_uploader.pipeline.converted_source_path')
+    def test_verification_failure_clears_cache(
+        self, path_mock, convert, verify, save, remove
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / 'Folder.mp4'
+            path_mock.return_value = target
+            sources = [Path(tmp) / 'VTS_01_1.VOB', Path(tmp) / 'VTS_01_2.VOB']
+            job = {'title': 'Folder', 'files': sources, 'convert': True}
+            with self.assertRaises(RuntimeError):
+                prepare_source(job, {'uploads': {}, 'golden_sources': {}}, {
+                    'export_converted_source': True,
+                    'remove_original_after_conversion': False,
+                })
+        remove.assert_called_once_with(sources, 0, [])
 
     @patch('youtube_uploader.pipeline.save_state')
     @patch('youtube_uploader.pipeline.remove_local_file')
@@ -107,6 +190,7 @@ class PrepareSourceTests(unittest.TestCase):
                 'remove_original_after_conversion': True,
                 'remove_original_permanent': True,
             })
+        self.assertEqual(job['cut_namespace'], 'folders')
         self.assertEqual(remove.call_count, 2)
         remove.assert_any_call(sources[0], True)
 
@@ -188,7 +272,10 @@ class CleanupAndRemovalTests(unittest.TestCase):
 class GoldenSmokeTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('ffmpeg'), 'ffmpeg not installed')
     def test_real_conversion_creates_golden(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            'youtube_uploader.ffmpeg.CONVERTED_DIR',
+            Path(tmp) / '.converted',
+        ):
             source = Path(tmp) / 'Source.mkv'
             subprocess.run([
                 'ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',

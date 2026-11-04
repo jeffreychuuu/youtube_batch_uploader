@@ -204,7 +204,7 @@ cp config.example.json config.json
 | `remove_original_after_conversion` | `true` = remove the original files after the converted MP4 is verified (requires `export_converted_source`) |
 | `remove_original_permanent` | Removal method for conversion-time cleanup: `false` = move to Trash (default) / `true` = delete permanently. Independent of `remove_local_permanent` |
 
-**Converted sources and golden files.** When `export_converted_source` is enabled, a converted file becomes a *golden source*: later runs cut, split and upload from it instead of re-reading the originals. Cut-free uploads are split with stream copy (fast, no re-encode); uploads with cuts are re-encoded. `remove_original_after_conversion` is the only setting that removes the original files at conversion time — `remove_local_after_upload` never removes a golden file.
+**Converted sources and golden files.** When `export_converted_source` is enabled, a converted file becomes a *golden source*: later runs cut, split and upload from it instead of re-reading the originals. Cut-free uploads are split with stream copy (fast, no re-encode); uploads with cuts are re-encoded. `remove_original_after_conversion` is the only setting that removes the original files at conversion time — `remove_local_after_upload` never removes a golden file. A golden job keeps the cuts namespace of its source (`folders` for merged VOB jobs, `files` for single-file jobs), so existing `cuts.json` keys keep working after conversion. Two sources that would write the same golden file stop the run instead of overwriting.
 
 ### 3.2 Run
 

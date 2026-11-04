@@ -6,6 +6,7 @@ from .ffmpeg import (
     convert_to_mp4, move_converted_to_source, remove_cached_conversion,
     remove_copy_cache, split_without_encode, verify_video,
 )
+from .golden import source_provenance_matches
 from .state import migrate_completed_entry, record_golden_source, save_state
 
 
@@ -21,12 +22,15 @@ def prepare_source(job, state, config):
     """Convert a source job into the files and state key to upload from"""
     files = job["files"]
     if job.get("golden"):
+        if not job.get("cut_namespace"):
+            job["cut_namespace"] = "folders"
         return SourcePlan(files, str(files[0].resolve()), "single", True)
     if not job["convert"]:
         return SourcePlan(files, str(files[0].resolve()), "single", False)
     if not config["export_converted_source"]:
         return SourcePlan(files, str(files[0].resolve()), "convert_pipeline", False)
 
+    source_namespace = "folders" if len(files) > 1 else "files"
     target = converted_source_path(job)
     golden_key = str(target.resolve())
     recorded = state.get("golden_sources", {}).get(golden_key)
@@ -36,15 +40,26 @@ def prepare_source(job, state, config):
                 f"[錯誤] golden 目標檔案已存在但未記錄喺 state：{target}\n"
                 "        請先檢查／移除該檔案，或還原 upload_state.json。"
             )
+        if not source_provenance_matches(recorded, files):
+            raise SystemExit(
+                f"[錯誤] golden 目標 {target} 屬於另一組來源，唔會重用。\n"
+                "        請檢查 upload_state.json 嘅 golden_sources，"
+                "或重新命名其中一個來源。"
+            )
         if golden_key not in state["uploads"]:
             migrate_completed_entry(state, str(files[0].resolve()), target)
             save_state(state)
         job["files"] = [target]
         job["golden"] = True
+        job["cut_namespace"] = source_namespace
         return SourcePlan([target], golden_key, "single", True)
 
     converted = convert_to_mp4(files, 0, [])[0]
-    verify_video(converted)
+    try:
+        verify_video(converted)
+    except Exception:
+        remove_cached_conversion(files, 0, [])
+        raise
     move_converted_to_source(converted, target)
     verify_video(target)
 
@@ -67,6 +82,7 @@ def prepare_source(job, state, config):
 
     job["files"] = [target]
     job["golden"] = True
+    job["cut_namespace"] = source_namespace
     return SourcePlan([target], golden_key, "single", True)
 
 

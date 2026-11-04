@@ -3,6 +3,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from youtube_uploader.ffmpeg import (
     build_filter_graph, conversion_fingerprint, copy_fingerprint,
@@ -104,7 +105,10 @@ class CopySplitTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which('ffmpeg'), 'ffmpeg not installed')
     def test_split_without_encode_produces_parts(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            'youtube_uploader.ffmpeg.CONVERTED_DIR',
+            Path(tmp) / '.converted',
+        ):
             source = Path(tmp) / 'clip.mp4'
             self._make_clip(source, keyframe_frames=10)
             verify_video(source)
@@ -117,7 +121,10 @@ class CopySplitTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which('ffmpeg'), 'ffmpeg not installed')
     def test_split_without_encode_rejects_sparse_keyframes(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            'youtube_uploader.ffmpeg.CONVERTED_DIR',
+            Path(tmp) / '.converted',
+        ):
             source = Path(tmp) / 'clip.mp4'
             self._make_clip(source)
             try:
@@ -125,6 +132,14 @@ class CopySplitTests(unittest.TestCase):
                     split_without_encode(source, 0.001)
             finally:
                 remove_copy_cache(source, 0.001)
+
+    @unittest.skipUnless(shutil.which('ffprobe'), 'ffprobe not installed')
+    def test_verify_rejects_non_video(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'not-video.mp4'
+            path.write_bytes(b'not a video')
+            with self.assertRaises(RuntimeError):
+                verify_video(path)
 
 
 if __name__ == '__main__':

@@ -2,7 +2,10 @@
 import sys
 
 from .files import build_upload_jobs, scan_video_files
-from .golden import mark_golden_jobs, skip_converted_source_jobs
+from .golden import (
+    ensure_unique_converted_targets, mark_golden_jobs,
+    skip_converted_source_jobs,
+)
 from .pipeline import prepare_source
 from .state import load_state, save_state
 
@@ -23,6 +26,7 @@ def run_convert_only(config):
     if not jobs:
         print(f"[提示] 在 {config['root_folder']} 內找不到相容的影片檔案。")
         return {"converted": 0, "skipped": 0, "failed": 0}
+    ensure_unique_converted_targets(jobs)
 
     state = load_state()
     mark_golden_jobs(jobs, state)
