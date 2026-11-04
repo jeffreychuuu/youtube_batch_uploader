@@ -1,9 +1,14 @@
+import json
+import tempfile
 import unittest
 from pathlib import Path
 
 from youtube_uploader.cuts import (
     format_timestamp,
     get_job_cuts,
+    job_cut_key,
+    job_part_numbers,
+    load_cuts,
     normalise_cuts,
     parse_cut_ranges,
     parse_time,
@@ -102,6 +107,112 @@ class GetJobCutsTests(unittest.TestCase):
             [(10, 20), (30, 40), (3604, 3605)],
         )
         self.assertEqual(used, {'Video', resolved, 'Video [part 2]'})
+
+
+class NamespacedCutsTests(unittest.TestCase):
+    def test_folder_original_applies_to_merged_job(self):
+        job = {'title': 'Folder', 'files': [Path('/tmp/a.VOB'), Path('/tmp/b.VOB')]}
+        cuts_map = {
+            'folders': {'Folder': {'original': [(10, 20)]}},
+            'files': {},
+            'legacy': {},
+        }
+        used = set()
+        self.assertEqual(get_job_cuts(cuts_map, job, 1, used), [(10, 20)])
+        self.assertEqual(used, {'folders:Folder'})
+
+    def test_files_original_applies_to_single_file_job(self):
+        job = {'title': 'Clip', 'files': [Path('/tmp/Clip.mp4')]}
+        cuts_map = {
+            'folders': {},
+            'files': {'Clip': {'original': [(10, 20)]}},
+            'legacy': {},
+        }
+        self.assertEqual(get_job_cuts(cuts_map, job, 1), [(10, 20)])
+
+    def test_namespaces_do_not_leak_between_job_types(self):
+        job = {'title': 'Clip', 'files': [Path('/tmp/Clip.mp4')]}
+        cuts_map = {
+            'folders': {'Clip': {'original': [(10, 20)]}},
+            'files': {},
+            'legacy': {},
+        }
+        self.assertEqual(get_job_cuts(cuts_map, job, 1), [])
+
+    def test_parts_are_offset_from_the_part_start(self):
+        job = {'title': 'Clip', 'files': [Path('/tmp/Clip.mp4')]}
+        cuts_map = {
+            'folders': {},
+            'files': {'Clip': {'parts': {2: [(300, 360)]}}},
+            'legacy': {},
+        }
+        self.assertEqual(get_job_cuts(cuts_map, job, 1), [(3899, 3959)])
+        self.assertEqual(job_part_numbers(cuts_map, job), {2})
+
+    def test_parts_require_splitting(self):
+        job = {'title': 'Clip', 'files': [Path('/tmp/Clip.mp4')]}
+        cuts_map = {
+            'folders': {},
+            'files': {'Clip': {'parts': {2: [(0, 1)]}}},
+            'legacy': {},
+        }
+        with self.assertRaises(SystemExit):
+            get_job_cuts(cuts_map, job, 0)
+
+    def test_job_key_uses_namespace_by_job_shape(self):
+        merged = {'title': 'Folder', 'files': [Path('/a'), Path('/b')]}
+        single = {'title': 'Clip', 'files': [Path('/a/Clip.mp4')]}
+        self.assertEqual(job_cut_key(merged), ('folders', 'Folder'))
+        self.assertEqual(job_cut_key(single), ('files', 'Clip'))
+
+
+class LoadCutsTests(unittest.TestCase):
+    def _load(self, data):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'cuts.json'
+            path.write_text(json.dumps(data), encoding='utf-8')
+            return load_cuts(path)
+
+    def test_legacy_flat_format(self):
+        cuts = self._load({'Video': ['1:00-2:00']})
+        self.assertEqual(cuts['legacy'], {'Video': [(60, 120)]})
+        self.assertEqual(cuts['folders'], {})
+        self.assertEqual(cuts['files'], {})
+
+    def test_namespaced_format(self):
+        cuts = self._load({
+            'folders': {'Folder': {'original': ['1:00-2:00']}},
+            'files': {'Clip': {'parts': {'2': ['0:10-0:20']}}},
+        })
+        self.assertEqual(cuts['folders']['Folder']['original'], [(60, 120)])
+        self.assertEqual(cuts['files']['Clip']['parts'], {2: [(10, 20)]})
+
+    def test_rejects_original_and_parts_together(self):
+        with self.assertRaises(SystemExit):
+            self._load({
+                'files': {
+                    'Clip': {
+                        'original': ['1:00-2:00'],
+                        'parts': {'2': ['0:10-0:20']},
+                    }
+                }
+            })
+
+    def test_rejects_entry_without_section(self):
+        with self.assertRaises(SystemExit):
+            self._load({'files': {'Clip': {}}})
+
+    def test_rejects_unknown_section(self):
+        with self.assertRaises(SystemExit):
+            self._load({'files': {'Clip': {'full': ['1:00-2:00']}}})
+
+    def test_rejects_invalid_part_number(self):
+        with self.assertRaises(SystemExit):
+            self._load({'files': {'Clip': {'parts': {'0': ['0:10-0:20']}}}})
+
+    def test_rejects_empty_parts(self):
+        with self.assertRaises(SystemExit):
+            self._load({'files': {'Clip': {'parts': {}}}})
 
 
 class FormatTimestampTests(unittest.TestCase):

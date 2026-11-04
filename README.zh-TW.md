@@ -129,18 +129,25 @@ Windows：由 [ffmpeg.org](https://ffmpeg.org/) 下載並加入 `PATH`。
 
 ```json
 {
-  "My Video": [
-    "21:55-22:45",
-    "23:20-24:35",
-    "24:45-26:25"
-  ]
+  "folders": {
+    "My Video": {
+      "original": [
+        "21:55-22:45",
+        "23:20-24:35",
+        "24:45-26:25"
+      ]
+    }
+  }
 }
 ```
 
-- Key 係 job 標題（檔名不含副檔名；合併 VOB 就用資料夾名）。亦可以用第一個來源檔嘅絕對路徑。
+- `folders` 嘅 key 對應合併 VOB job（資料夾名；同一個資料夾有多個 title set 就加 `(VTS_01)` / `(VTS_02)`）。`files` 嘅 key 對應單檔 job（檔名不含副檔名）。
+- 每個 entry **必須且只能**填 `original` 或 `parts` 其中一個；兩者同時出現、或者兩者都冇，都會報錯：
+  - `original`：範圍係指 **合併後完整影片嘅 timeline**（同 YouTube 顯示嗰條 timeline 一樣），喺分段之前剪。
+  - `parts`：範圍相對於某個 part，例如 `"parts": {"2": ["5:00-6:00"]}`。Script 會用 `part_duration_hours` 自動加返該 part 嘅起始 offset，唔使你手動計完整 timeline。需要開啟分段（`part_duration_hours > 0`）。
 - 時間格式：`MM:SS` 或 `HH:MM:SS`；開始/結束用 `-`、`–`、`—`、`~` 或 `to` 分隔。
-- 冇 part suffix 嘅 key，範圍係指 **合併後完整影片嘅 timeline**（同 YouTube 顯示嗰條 timeline 一樣），喺分段之前剪。
-- 如果 YouTube flag 嘅係某個 part，可以直接用 part 標題做 key，例如 `"My Video [part 2]": ["5:00-6:00"]`。Script 會自動用同一個 `part_duration_hours` 加返該 part 嘅起始 offset，唔使你手動計完整 timeline。呢個假設個 part 係由未剪嘅合併影片、用目前 part 長度產生。
+- 舊嘅 flat 格式仍然支援：key 可以係 job 標題、第一個來源檔嘅絕對路徑、或 `"<title> [part N]"`，value 係範圍陣列。
+- JSON 唔支援 comment；`cuts.example.json` 只示範兩種合法 entry 寫法，冇任何 comment 語法。
 - 剪輯會喺 ffmpeg 轉檔時進行，之後先照常分段。
 - 改 cut-list 會令轉檔 cache 失效。如果條片之前已上傳、來源檔案仍然存在，script 會重新處理並上傳修正版；舊嘅 YouTube 影片唔會自動刪除。
 - 本機來源檔案嘅刪除一律跟隨 `remove_local_after_upload`，設有 cut-list 都一樣。

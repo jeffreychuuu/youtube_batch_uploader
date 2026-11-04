@@ -1,12 +1,17 @@
 {
-  "Example Video Title": [
-    "1:23:45-1:24:30",
-    "2:10:00-2:10:45"
-  ],
-  "Example Video Title [part 2]": [
-    "5:00-6:00"
-  ],
-  "/absolute/path/to/videos/folder/VTS_01_1.VOB": [
-    "10:00-10:30"
-  ]
+  "folders": {
+    "Example Video Title": {
+      "original": [
+        "1:23:45-1:24:30",
+        "2:10:00-2:10:45"
+      ]
+    }
+  },
+  "files": {
+    "Example Clip": {
+      "parts": {
+        "2": ["5:00-6:00"]
+      }
+    }
+  }
 }

@@ -7,8 +7,12 @@ from googleapiclient.errors import HttpError
 from .config import load_config
 from .cuts import (
     apply_entry_settings,
+    cut_entry_exists,
     cuts_for_state,
     get_job_cuts,
+    iter_cut_entries,
+    job_cut_key,
+    job_part_numbers,
     load_cuts,
     normalise_cuts,
     print_old_video_links,
@@ -27,6 +31,23 @@ from .youtube_api import (
 def part_title(base_title, index, total):
     """Title for one part; a single-part upload keeps the original title"""
     return base_title if total == 1 else f"{base_title} [part {index}]"
+
+
+def _ensure_unique_job_keys(jobs, cuts_map):
+    """Refuse ambiguous cuts.json matches when two jobs share the same key"""
+    seen = {}
+    for job in jobs:
+        namespace, name = job_cut_key(job)
+        marker = (namespace, name)
+        if marker in seen and cut_entry_exists(cuts_map, namespace, name):
+            sys.exit(
+                f"[錯誤] 兩個影片項目共用同一個 cuts.json key "
+                f"\"{namespace}.{name}\"：\n"
+                f"        - {seen[marker]['display_name']}\n"
+                f"        - {job['display_name']}\n"
+                "        請重新命名其中一個資料夾／檔案。"
+            )
+        seen.setdefault(marker, job)
 
 
 def main():
@@ -53,11 +74,16 @@ def main():
         )
     state = load_state()
     cuts_map = load_cuts()
+    _ensure_unique_job_keys(jobs, cuts_map)
     part_hours = config["part_duration_hours"]
     used_cut_keys = set()
     for job in jobs:
         get_job_cuts(cuts_map, job, part_hours, used_cut_keys)
-    unused_cut_keys = sorted(set(cuts_map) - used_cut_keys)
+    unused_cut_keys = sorted(
+        display
+        for display, used_key in iter_cut_entries(cuts_map)
+        if used_key not in used_cut_keys
+    )
     if unused_cut_keys:
         print(f"[警告] cuts.json 有未匹配任何影片嘅 key：{', '.join(unused_cut_keys)}")
     youtube = get_authenticated_service()
@@ -187,6 +213,17 @@ def main():
                     media_parts = convert_to_mp4(files, part_hours, cuts)
                 else:
                     media_parts = [files[0]]
+
+                requested_parts = (
+                    job_part_numbers(cuts_map, job) if part_hours > 0 else set()
+                )
+                if requested_parts and max(requested_parts) > len(media_parts):
+                    print(
+                        f"  [錯誤] cuts.json 指定咗 part {max(requested_parts)}，"
+                        f"但 {job['display_name']} 實際只有 {len(media_parts)} 個 part；"
+                        "請檢查 cuts.json 嘅 parts 設定。"
+                    )
+                    continue
 
                 if len(parts_state) != len(media_parts):
                     parts_state = [{} for _ in media_parts]

@@ -129,18 +129,25 @@ If YouTube flags a video and gives time ranges to remove, create `cuts.json` nex
 
 ```json
 {
-  "My Video": [
-    "21:55-22:45",
-    "23:20-24:35",
-    "24:45-26:25"
-  ]
+  "folders": {
+    "My Video": {
+      "original": [
+        "21:55-22:45",
+        "23:20-24:35",
+        "24:45-26:25"
+      ]
+    }
+  }
 }
 ```
 
-- The key is the job title (the file name without extension, or the folder name for a merged VOB). The resolved first source path also works.
+- `folders` keys match merged VOB jobs (the folder name; add `(VTS_01)` / `(VTS_02)` when one folder contains multiple title sets). `files` keys match single-file jobs (the file name without extension).
+- Each entry must contain **exactly one** of `original` or `parts`. An entry with both, or with neither, is rejected:
+  - `original`: ranges on the **full merged video timeline** (the same timeline YouTube shows), removed before splitting.
+  - `parts`: ranges relative to a specific part, e.g. `"parts": {"2": ["5:00-6:00"]}`. The script adds that part's start offset using `part_duration_hours`, so you do not need to calculate the full-timeline time. Requires splitting (`part_duration_hours > 0`).
 - Time formats: `MM:SS` or `HH:MM:SS`. Separate start/end with `-`, `–`, `—`, `~`, or `to`.
-- Ranges without a part suffix refer to the **full merged video timeline** (the same timeline YouTube shows), before splitting.
-- If YouTube flags a specific part, use the part title as the key, e.g. `"My Video [part 2]": ["5:00-6:00"]`. The script automatically adds that part's start offset using the same `part_duration_hours`, so you do not need to calculate the full-timeline time. This assumes the part was produced from the uncut merged video with the current part length.
+- The legacy flat format is still accepted: a key that is the job title, the resolved first source path, or `"<title> [part N]"`, with an array of ranges as the value.
+- JSON does not support comments; `cuts.example.json` shows the two valid entry shapes without any comment syntax.
 - The ranges are removed during the ffmpeg conversion; the remaining video is then split normally.
 - Changing the cut list invalidates the conversion cache. If the job was already uploaded and the source files still exist, the script re-processes it and uploads a corrected version. The old YouTube video is **not** deleted automatically.
 - Local source removal follows `remove_local_after_upload` as usual, even when a cut list is set.
