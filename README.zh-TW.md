@@ -11,6 +11,8 @@
 ## 功能特色
 
 - 遞迴掃描指定資料夾，自動上傳所有支援格式的影片
+- 支援 VOB（DVD）：同一資料夾的 `VTS_01_1.VOB`、`VTS_01_2.VOB`… 會按編號合併並用 ffmpeg 轉成 MP4，合併後的影片以資料夾名稱為標題
+- 可透過 `convert_extensions` 指定其他格式（例如 AVI）先用 ffmpeg 轉檔
 - 上傳完成後自動加入（或建立）指定播放清單，重跑不會重複加入
 - 進度記錄於 `upload_state.json`，已完成的檔案重跑時直接跳過
 - 未完成的上傳會保存 resumable session，重跑時從斷點續傳
@@ -25,6 +27,7 @@
 
 - macOS（Windows / Linux 亦適用，只需調整路徑）
 - Python 3.8 或以上
+- ffmpeg（只在需要上傳 VOB，或把其他格式加入 `convert_extensions` 時需要）
 - 一個已建立頻道的 YouTube / Google 帳號
 - 已啟用 YouTube Data API v3 的 Google Cloud 專案
 
@@ -43,7 +46,20 @@ pip3 install google-api-python-client google-auth-oauthlib google-auth-httplib2
 > 如果沒有 `pip3`，請先確認是否已安裝 Python 3：`python3 --version`。
 > 本機如果沒有 `python` 指令，請改用 `python3`（或自行建立 alias / wrapper）。
 
-### 1.2 建立 YouTube API 憑證
+### 1.2 安裝 ffmpeg（VOB 需要）
+
+VOB 無法直接上傳到 YouTube，Script 會用 ffmpeg 合併並轉成 MP4，因此 ffmpeg 必須在 `PATH` 上：
+
+```bash
+brew install ffmpeg          # macOS
+# sudo apt install ffmpeg    # Debian / Ubuntu
+```
+
+Windows：由 [ffmpeg.org](https://ffmpeg.org/) 下載並加入 `PATH`。
+
+> 只有 `convert_extensions` 列出的格式才需要 ffmpeg（預設 `.vob`）。其他格式（包括 AVI）會直接上傳。
+
+### 1.3 建立 YouTube API 憑證
 
 1. 前往 [Google Cloud Console](https://console.cloud.google.com/)，建立新專案（或選用現有專案）。
 2. 進入 **APIs & Services → Library**，搜尋 **YouTube Data API v3**，按 **Enable** 啟用。
@@ -58,7 +74,7 @@ pip3 install google-api-python-client google-auth-oauthlib google-auth-httplib2
 
 > `client_secrets.json` 內含有 `"installed"` 區塊，就代表是正確的 Desktop App 憑證。
 
-### 1.3 第一次登入授權
+### 1.4 第一次登入授權
 
 第一次執行 Script 時，會自動開啟瀏覽器要求登入 Google 帳號並授權。
 
@@ -71,13 +87,23 @@ pip3 install google-api-python-client google-auth-oauthlib google-auth-httplib2
 
 ## 2. 影片清單
 
-本專案版本**不使用 CSV**：Script 會直接遞迴掃描 `CONFIG["root_folder"]` 內所有影片檔案，並以**檔案名稱（不含副檔名）作為影片標題**。
+本專案版本**不使用 CSV**：Script 會直接遞迴掃描 `CONFIG["root_folder"]` 內所有影片檔案，並以**檔案名稱（不含副檔名）作為影片標題**。唯一例外是多段 VOB 合併後的影片，會以資料夾名稱為標題（見下文）。
 
 支援的副檔名（可在 `CONFIG["video_extensions"]` 修改）：
 
 ```
-.mp4  .mov  .mkv  .avi  .m4v
+.mp4  .mov  .mkv  .avi  .m4v  .vob
 ```
+
+**AVI** 是 YouTube 官方支援的格式，預設會直接上傳。如果某個 AVI 使用了 YouTube 無法處理的編碼，可以在 `config.json` 的 `convert_extensions` 加入 `".avi"`，先轉成 MP4 再上傳。
+
+**VOB** 不在 YouTube 官方支援清單內，因此 `.vob` 預設會列入 `convert_extensions`。Script 會：
+
+- 將同一資料夾、同一 title set 的 `VTS_01_1.VOB`、`VTS_01_2.VOB`… 按編號合併成一段影片
+- 合併後的影片以資料夾名稱為標題（如果 VOB 放在 `VIDEO_TS` 內，會改用上一層資料夾名稱）
+- 略過 DVD 選單檔案（`*_0.VOB` 與 `VIDEO_TS.VOB`）
+- 單一 VOB 則沿用原本的檔名作為標題
+- 將轉檔結果暫存在 `.converted/`，上傳中斷後重跑毋須重新編碼；上傳成功後自動刪除
 
 也就是說，你只需要：
 
@@ -111,7 +137,8 @@ cp config.example.json config.json
   "playlist_name": "My Playlist",
   "privacy_status": "unlisted",
   "made_for_kids": false,
-  "video_extensions": [".mp4", ".mov", ".mkv", ".avi", ".m4v"],
+  "video_extensions": [".mp4", ".mov", ".mkv", ".avi", ".m4v", ".vob"],
+  "convert_extensions": [".vob"],
   "chunk_size_mb": 32,
   "max_retries": 5,
   "remove_local_after_upload": false,
@@ -128,6 +155,7 @@ cp config.example.json config.json
 | `privacy_status` | `public`（公開）/ `unlisted`（不公開，有連結即可觀看）/ `private`（私人） |
 | `made_for_kids` | `True` = 兒童導向內容；`False` = 非兒童導向 |
 | `video_extensions` | 要掃描的副檔名 |
+| `convert_extensions` | 上傳前先用 ffmpeg 轉成 MP4 的副檔名（預設 `[".vob"]`）；加入 `".avi"` 可強制 AVI 轉檔 |
 | `chunk_size_mb` | 每個上傳分塊的大小，必須為 256KB 的整數倍；大檔案建議 16–32 |
 | `max_retries` | 網絡錯誤 / 5xx 時每個分塊的最多重試次數 |
 | `remove_local_after_upload` | `true` = 上傳成功後移除本機影片；`false` = 保留（預設） |
@@ -148,11 +176,12 @@ python3 batch_upload.py
 
 執行後會：
 
-1. 掃描資料夾，列出影片數量
+1. 掃描資料夾、合併多段 VOB，並列出上傳項目數量
 2. 開啟瀏覽器進行 OAuth 授權（第一次才需要）
 3. 找到或建立播放清單
-4. 逐條上傳影片，顯示進度百分比
-5. 上傳完成後加入播放清單
+4. 如有 VOB，先用 ffmpeg 轉成 MP4
+5. 逐條上傳影片，顯示進度百分比
+6. 上傳完成後加入播放清單
 
 ### 3.3 關於「草稿」與發佈
 
@@ -182,6 +211,7 @@ YouTube API **沒有「草稿」概念**，上傳完成後影片即會以 `priva
 
 - 只會在影片**上傳成功並取得 video ID** 之後才移除本機檔案
 - 如果上傳失敗，本機檔案不會被刪除
+- 合併上傳的 VOB，會一併移除所有來源分段檔案
 - 之前已經上傳過的影片，重跑時亦會按照此設定清理
 - 移除失敗（例如權限不足）只會顯示警告，不會中斷其他影片
 - `remove_local_permanent: false`（垃圾桶模式）在 macOS 首次使用時，系統可能會詢問「終端機想控制 Finder」，需要允許
@@ -262,6 +292,24 @@ YouTube Data API v3 的預設每日配額為 **10,000 units**，而**每次上�
 - 確認登入的帳號已建立 YouTube channel
 - 確認該帳號已加入 OAuth consent screen 的 Test users
 
+### 上傳 VOB 時出現 `找不到 ffmpeg`
+
+請先安裝 ffmpeg（見 1.2），並確認它在 `PATH` 上：
+
+```bash
+ffmpeg -version
+```
+
+沒有 ffmpeg 時，VOB 項目會顯示錯誤並跳過，其他格式仍會正常上傳。
+
+### AVI 上傳失敗或播放有問題
+
+AVI 是 YouTube 官方支援的格式，但 AVI 內含的某些編碼未必支援。在 `config.json` 的 `convert_extensions` 加入 `".avi"`，Script 便會先將 AVI 轉成 MP4（H.264/AAC）再上傳。
+
+### VOB 轉檔很慢或佔用大量磁碟空間
+
+合併與重新編碼 DVD 影片相當耗用 CPU。轉檔結果會暫存在 `.converted/` 直到上傳成功，請預留大約等於來源總大小的可用空間。
+
 ### 上傳中途斷線 / 電腦休眠
 
 Script 會自動重試；如果仍然失敗，再執行一次就會從斷點續傳。
@@ -294,6 +342,7 @@ youtube_batch_uploader/
 ├── client_secrets.json   # OAuth 憑證（自行下載，請勿分享）
 ├── token.pickle          # 登入 token（首次執行後產生，請勿分享）
 ├── upload_state.json     # 上傳進度記錄（自動產生）
+├── .converted/           # ffmpeg 轉檔暫存（自動產生，可安全刪除）
 ├── README.md             # 英文說明文件
 └── README.zh-TW.md       # 繁體中文說明文件
 ```

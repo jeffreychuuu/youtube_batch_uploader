@@ -11,6 +11,9 @@ config.json
 upload_state.json
 upload_state.json.tmp
 
+# ===== ffmpeg 轉檔暫存 =====
+.converted/
+
 # ===== Python =====
 __pycache__/
 *.py[cod]

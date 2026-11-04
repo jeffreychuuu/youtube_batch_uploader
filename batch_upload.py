@@ -1,7 +1,9 @@
+import hashlib
 import json
 import os
 import pickle
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -19,6 +21,8 @@ CLIENT_SECRETS_FILE = BASE_DIR / 'client_secrets.json'
 TOKEN_PICKLE_FILE = BASE_DIR / 'token.pickle'
 STATE_FILE = BASE_DIR / 'upload_state.json'
 CONFIG_FILE = BASE_DIR / 'config.json'
+# Cache for MP4 conversions; safe to delete between runs
+CONVERTED_DIR = BASE_DIR / '.converted'
 
 # ==================== Default settings ====================
 # Real settings go in config.json in the same directory (copy config.example.json and edit it)
@@ -27,7 +31,10 @@ DEFAULT_CONFIG = {
     "playlist_name": "My Playlist",
     "privacy_status": "unlisted",
     "made_for_kids": False,
-    "video_extensions": [".mp4", ".mov", ".mkv", ".avi", ".m4v"],
+    "video_extensions": [".mp4", ".mov", ".mkv", ".avi", ".m4v", ".vob"],
+    # Extensions converted to MP4 with ffmpeg before upload (VOB needs this;
+    # add e.g. ".avi" here if you want every AVI transcoded for compatibility)
+    "convert_extensions": [".vob"],
     "chunk_size_mb": 32,
     "max_retries": 5,
     # Whether to remove local video files after a successful upload
@@ -62,6 +69,13 @@ def load_config():
         sys.exit("[錯誤] privacy_status 只可以係 'public'、'unlisted' 或 'private'。")
     if not isinstance(config["video_extensions"], list):
         sys.exit("[錯誤] video_extensions 必須係 JSON 陣列，例如 [\".mp4\", \".mov\"]。")
+    if not isinstance(config["convert_extensions"], list):
+        sys.exit("[錯誤] convert_extensions 必須係 JSON 陣列，例如 [\".vob\"]。")
+    if any(
+        not isinstance(ext, str) or not ext.startswith('.')
+        for ext in config["convert_extensions"]
+    ):
+        sys.exit("[錯誤] convert_extensions 每項都必須係以 '.' 開頭的字串，例如 \".vob\"。")
     for key in ("chunk_size_mb", "max_retries"):
         if isinstance(config[key], bool) or not isinstance(config[key], int):
             sys.exit(f"[錯誤] {key} 必須係整數。")
@@ -82,6 +96,14 @@ SCOPES = [
 
 # HTTP status codes that are safe to retry
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+
+# Formats converted to MP4 before upload (user-configurable; VOB is the default)
+CONVERT_EXTENSIONS = {ext.lower() for ext in CONFIG["convert_extensions"]}
+# ffmpeg encoding settings for the conversion (quality vs. speed/size)
+CONVERT_CRF = 20
+CONVERT_PRESET = 'medium'
+# DVD-style VOB segments: VTS_01_1.VOB, VTS_01_2.VOB, ...
+VOB_SEGMENT_RE = re.compile(r'^(?P<prefix>.+)_(?P<index>\d+)$')
 # ====================================================
 
 def get_authenticated_service():
@@ -129,22 +151,39 @@ def save_state(state):
 def get_entry(state, file_path):
     return state["uploads"].setdefault(str(file_path.resolve()), {})
 
-def is_same_file(entry, file_path):
-    """Check that the file has not changed since upload (same size and modification time)"""
-    try:
+def source_fingerprint(files):
+    """Aggregate size / latest mtime and a stable hash for one or more source files"""
+    total_size = 0
+    latest_mtime = 0.0
+    digest = hashlib.sha1()
+    for file_path in files:
         stat = file_path.stat()
+        total_size += stat.st_size
+        latest_mtime = max(latest_mtime, stat.st_mtime)
+        digest.update(str(file_path.resolve()).encode('utf-8'))
+        digest.update(b'\0')
+        digest.update(str(stat.st_size).encode('ascii'))
+        digest.update(b'\0')
+        digest.update(str(stat.st_mtime_ns).encode('ascii'))
+        digest.update(b'\0')
+    return total_size, latest_mtime, digest.hexdigest()[:20]
+
+def is_same_source(entry, files):
+    """Check that the source files have not changed since upload"""
+    try:
+        total_size, latest_mtime, _ = source_fingerprint(files)
     except OSError:
         return False
     return (
-        entry.get("size") == stat.st_size
-        and abs(float(entry.get("mtime", 0)) - stat.st_mtime) < 0.001
+        entry.get("size") == total_size
+        and abs(float(entry.get("mtime", 0)) - latest_mtime) < 0.001
     )
 
-def refresh_entry(entry, file_path):
-    """Reset the entry when the file has changed"""
-    stat = file_path.stat()
+def refresh_entry(entry, files):
+    """Reset the entry when the source has changed"""
+    total_size, latest_mtime, _ = source_fingerprint(files)
     entry.clear()
-    entry.update({"size": stat.st_size, "mtime": stat.st_mtime})
+    entry.update({"size": total_size, "mtime": latest_mtime})
 
 def format_bytes(num):
     num = float(num)
@@ -211,14 +250,21 @@ def add_video_to_playlist(youtube, playlist_id, video_id):
     youtube.playlistItems().insert(part="snippet", body=body).execute()
     print(f"  -> 已成功加入播放清單")
 
-def upload_video(youtube, file_path, config, state):
-    """Upload a single video, resuming after an interruption if possible"""
-    entry = get_entry(state, file_path)
-    if not is_same_file(entry, file_path):
-        refresh_entry(entry, file_path)
+def upload_video(youtube, job, config, state, media_path=None):
+    """Upload a single video, resuming after an interruption if possible.
+
+    job["files"] identifies the source (one file, or several VOB segments merged
+    into one video). media_path lets the caller upload a converted copy while
+    state tracking and the title stay tied to the original source.
+    """
+    files = job["files"]
+    entry = get_entry(state, files[0])
+    if not is_same_source(entry, files):
+        refresh_entry(entry, files)
         save_state(state)
 
-    video_title = Path(file_path).stem  # Use the file name (without extension) as the video title
+    media_path = Path(media_path) if media_path else Path(files[0])
+    video_title = job["title"]
 
     body = {
         'snippet': {
@@ -233,7 +279,7 @@ def upload_video(youtube, file_path, config, state):
     }
 
     media = MediaFileUpload(
-        str(file_path),
+        str(media_path),
         chunksize=config["chunk_size_mb"] * 1024 * 1024,
         resumable=True
     )
@@ -242,6 +288,15 @@ def upload_video(youtube, file_path, config, state):
     # If a previous upload was unfinished, continue the same resumable session
     resume_uri = entry.get("resumable_uri")
     resume_bytes = int(entry.get("bytes_sent") or 0)
+    if resume_uri and entry.get("upload_size") not in (None, media.size()):
+        # The payload changed (e.g. the source was re-converted), so the old session cannot be resumed
+        print("\n[續傳] 檔案大小與上次不同，改為重新上傳...")
+        resume_uri = None
+        resume_bytes = 0
+        entry.pop("resumable_uri", None)
+        entry["bytes_sent"] = 0
+    entry["upload_size"] = media.size()
+
     if resume_uri:
         request.resumable_uri = resume_uri
         request.resumable_progress = resume_bytes
@@ -249,7 +304,8 @@ def upload_video(youtube, file_path, config, state):
         request._in_error_state = True
         print(f"\n[續傳] 發現未完成的上傳（約 {format_bytes(resume_bytes)}），嘗試由斷點繼續...")
 
-    print(f"\n[上傳中] {video_title} ({file_path.name}, {format_bytes(media.size())})")
+    converted_note = "（已轉檔為 MP4）" if job["convert"] else ""
+    print(f"\n[上傳中] {job['display_name']} ({format_bytes(media.size())}){converted_note}")
     print(f"  -> 權限: {config['privacy_status']} | 兒童導向: {config['made_for_kids']}")
 
     response = None
@@ -361,6 +417,106 @@ def remove_local_file(file_path, permanent):
         move_to_trash(file_path)
         print(f"  [清理] 已將本機檔案移到垃圾桶: {file_path}")
 
+def converted_cache_path(fingerprint):
+    """Deterministic cache path for a given source fingerprint"""
+    return CONVERTED_DIR / f"{fingerprint}.mp4"
+
+def write_concat_list(files, list_path):
+    """Write an ffmpeg concat-demuxer list for multi-segment VOB input"""
+    with open(list_path, 'w', encoding='utf-8') as f:
+        f.write('ffconcat version 1.0\n')
+        for file_path in files:
+            escaped = str(file_path.resolve()).replace("'", "'\\''")
+            f.write(f"file '{escaped}'\n")
+
+def convert_to_mp4(files):
+    """Merge (if needed) and convert source videos to MP4 (H.264/AAC) with ffmpeg.
+
+    The output is cached in CONVERTED_DIR, so resuming an interrupted upload
+    does not re-encode the file. The cache key covers the file paths, sizes
+    and modification times, so any change produces a fresh conversion.
+    """
+    ffmpeg = shutil.which('ffmpeg')
+    if not ffmpeg:
+        raise RuntimeError('找不到 ffmpeg，請先安裝（macOS: brew install ffmpeg）')
+
+    try:
+        _, _, fingerprint = source_fingerprint(files)
+    except OSError as e:
+        raise RuntimeError(f'無法讀取來源檔案: {e}')
+
+    target = converted_cache_path(fingerprint)
+    if target.exists():
+        print(f"  [轉檔] 重用已轉換檔案: {target.name}")
+        return target
+
+    CONVERTED_DIR.mkdir(parents=True, exist_ok=True)
+    tmp_path = target.with_name(target.name + '.part.mp4')
+
+    if len(files) == 1:
+        concat_path = None
+        input_args = ['-i', str(files[0])]
+        print(f"  [轉檔] {files[0].name} -> MP4（H.264/AAC），需時可能較長...")
+    else:
+        concat_path = target.with_name(target.name + '.concat.txt')
+        write_concat_list(files, concat_path)
+        input_args = ['-f', 'concat', '-safe', '0', '-i', str(concat_path)]
+        print(f"  [轉檔] 合併 {len(files)} 段 VOB -> MP4（H.264/AAC），需時可能較長...")
+        for file_path in files:
+            print(f"    - {file_path.name}")
+
+    cmd = [
+        ffmpeg, '-y', '-hide_banner', '-loglevel', 'error', '-stats',
+        *input_args,
+        # Keep the first video and audio streams only; VOB subtitles are not MP4-compatible
+        '-map', '0:v:0', '-map', '0:a:0?', '-sn',
+        # Deinterlace only frames flagged as interlaced (DVD content usually is)
+        '-vf', 'yadif=deint=interlaced',
+        '-c:v', 'libx264', '-preset', CONVERT_PRESET, '-crf', str(CONVERT_CRF),
+        '-pix_fmt', 'yuv420p',
+        '-c:a', 'aac', '-b:a', '192k',
+        str(tmp_path),
+    ]
+
+    try:
+        result = subprocess.run(cmd)
+    except OSError as e:
+        raise RuntimeError(f'無法執行 ffmpeg: {e}')
+    finally:
+        if concat_path is not None:
+            try:
+                concat_path.unlink()
+            except OSError:
+                pass
+
+    if result.returncode != 0:
+        try:
+            tmp_path.unlink()
+        except OSError:
+            pass
+        raise RuntimeError(f'ffmpeg 轉檔失敗（exit code {result.returncode}）')
+
+    os.replace(tmp_path, target)
+    print(f"  [轉檔] 完成: {target.name}")
+    return target
+
+def remove_cached_conversion(files):
+    """Delete the cached MP4 (and any partial output) for these source files"""
+    try:
+        _, _, fingerprint = source_fingerprint(files)
+    except OSError:
+        return
+    target = converted_cache_path(fingerprint)
+    for path in (
+        target,
+        target.with_name(target.name + '.part.mp4'),
+        target.with_name(target.name + '.concat.txt'),
+    ):
+        try:
+            path.unlink()
+        except OSError:
+            pass
+
 def natural_sort_key(path):
     """Sort key that compares digit runs as numbers (2 before 10) and ignores case"""
     return [
@@ -380,17 +536,129 @@ def scan_video_files(folder_path, extensions):
     ]
     return sorted(matched_files, key=natural_sort_key)
 
+def folder_display_name(folder):
+    """Video title for a folder; skip the generic VIDEO_TS level when present"""
+    if folder.name.upper() == 'VIDEO_TS' and folder.parent != folder:
+        return folder.parent.name
+    return folder.name
+
+def build_upload_jobs(video_files):
+    """Turn scanned files into upload jobs, merging multi-segment VOB files.
+
+    Non-VOB files are single-file jobs. VOB files named like VTS_01_1.VOB,
+    VTS_01_2.VOB, ... are merged per title set (same folder and prefix), in
+    numeric order, and titled after the folder. DVD menu files (*_0.VOB and
+    VIDEO_TS.VOB) are skipped.
+    """
+    jobs = []
+    groups = {}
+
+    for path in video_files:
+        suffix = path.suffix.lower()
+
+        if suffix not in CONVERT_EXTENSIONS:
+            # Upload this format as-is
+            jobs.append({
+                "files": [path],
+                "title": path.stem,
+                "display_name": path.name,
+                "convert": False,
+            })
+            continue
+
+        if suffix != '.vob':
+            # Other formats can be transcoded individually when configured
+            jobs.append({
+                "files": [path],
+                "title": path.stem,
+                "display_name": path.name,
+                "convert": True,
+            })
+            continue
+
+        if path.name.upper() == 'VIDEO_TS.VOB':
+            print(f"[略過] DVD 選單檔案: {path.name}")
+            continue
+
+        match = VOB_SEGMENT_RE.match(path.stem)
+        if not match:
+            # Standalone VOB (e.g. a single-file rip)
+            jobs.append({
+                "files": [path],
+                "title": path.stem,
+                "display_name": path.name,
+                "convert": True,
+            })
+            continue
+
+        index = int(match.group('index'))
+        if index == 0:
+            print(f"[略過] DVD 選單檔案: {path.name}")
+            continue
+
+        group_key = (str(path.parent.resolve()), match.group('prefix').lower())
+        group = groups.get(group_key)
+        if group is None:
+            group = {"folder": path.parent, "segments": []}
+            groups[group_key] = group
+            jobs.append(group)
+        group["segments"].append((index, path))
+
+    folder_counts = {}
+    for group in groups.values():
+        folder = group["folder"]
+        folder_counts[folder] = folder_counts.get(folder, 0) + 1
+
+    for group in groups.values():
+        group["segments"].sort(key=lambda item: item[0])
+        files = [path for _, path in group["segments"]]
+        folder = group["folder"]
+        merged = len(files) > 1
+
+        indexes = [index for index, _ in group["segments"]]
+        if indexes != list(range(1, len(indexes) + 1)):
+            print(
+                f"[警告] {folder.name} 的 VOB 分段不連續：{indexes}"
+                "（可能未複製完成，請確認後再上傳）"
+            )
+
+        title = folder_display_name(folder) if merged else files[0].stem
+        if merged and folder_counts[folder] > 1:
+            # Multiple title sets in one folder: keep the titles distinct
+            prefix = VOB_SEGMENT_RE.match(files[0].stem).group('prefix')
+            title = f"{title} ({prefix})"
+
+        group["files"] = files
+        group["title"] = title
+        group["display_name"] = (
+            f"{title}（{len(files)} 段 VOB 合併）" if merged else files[0].name
+        )
+        group["convert"] = True
+        group.pop("segments", None)
+        group.pop("folder", None)
+
+    return jobs
+
 def main():
     chunk_bytes = CONFIG["chunk_size_mb"] * 1024 * 1024
     if chunk_bytes % (256 * 1024) != 0:
         sys.exit("[錯誤] chunk_size_mb 換算後必須是 256KB 的整數倍。")
 
     video_files = scan_video_files(CONFIG["root_folder"], CONFIG["video_extensions"])
-    if not video_files:
+    jobs = build_upload_jobs(video_files)
+    if not jobs:
         print(f"[提示] 在 {CONFIG['root_folder']} 內找不到相容的影片檔案。")
         return
 
-    print(f"[掃描完成] 共找到 {len(video_files)} 個影片檔案待處理。")
+    print(
+        f"[掃描完成] 共找到 {len(video_files)} 個影片檔案，"
+        f"合併為 {len(jobs)} 個上傳項目。"
+    )
+    if any(job["convert"] for job in jobs) and not shutil.which('ffmpeg'):
+        print(
+            "[警告] 找不到 ffmpeg，需要轉檔的影片（例如 VOB）會被跳過。\n"
+            "        請先安裝：brew install ffmpeg（macOS）"
+        )
     state = load_state()
     youtube = get_authenticated_service()
 
@@ -404,48 +672,65 @@ def main():
         )
 
     # Upload each video and add it to the playlist
-    for idx, video_path in enumerate(video_files, start=1):
-        print(f"\n處理第 [{idx}/{len(video_files)}] 部影片...")
-        key = str(video_path.resolve())
+    for idx, job in enumerate(jobs, start=1):
+        files = job["files"]
+        print(f"\n處理第 [{idx}/{len(jobs)}] 部影片...")
+        key = str(files[0].resolve())
         entry = state["uploads"].get(key)
         try:
-            if entry and entry.get("video_id") and is_same_file(entry, video_path):
+            if entry and entry.get("video_id") and is_same_source(entry, files):
                 video_id = entry["video_id"]
-                print(f"[略過] 已上傳過：{video_path.name} (ID: {video_id})")
+                print(f"[略過] 已上傳過：{job['display_name']} (ID: {video_id})")
+                if job["convert"]:
+                    remove_cached_conversion(files)
             else:
-                if entry and not is_same_file(entry, video_path):
-                    print(f"[變更] 檔案已修改，重新上傳：{video_path.name}")
-                video_id = upload_video(youtube, video_path, CONFIG, state)
+                if entry and not is_same_source(entry, files):
+                    print(f"[變更] 檔案已修改，重新上傳：{job['display_name']}")
+                    if job["convert"]:
+                        remove_cached_conversion(files)
+                media_path = files[0]
+                if job["convert"]:
+                    media_path = convert_to_mp4(files)
+                video_id = upload_video(youtube, job, CONFIG, state, media_path=media_path)
                 entry = state["uploads"][key]
+                # The converted copy is no longer needed once the upload has completed
+                if job["convert"]:
+                    remove_cached_conversion(files)
 
             if video_id and playlist_id and not entry.get("playlist_added"):
                 add_video_to_playlist(youtube, playlist_id, video_id)
                 entry["playlist_added"] = True
                 save_state(state)
 
-            # Remove the local file only after a successful upload (or if it was uploaded before)
+            # Remove local files only after a successful upload (or if uploaded before)
             if (
                 video_id
                 and CONFIG["remove_local_after_upload"]
                 and not entry.get("local_removed")
             ):
-                try:
-                    remove_local_file(video_path, CONFIG["remove_local_permanent"])
+                all_removed = True
+                for source_file in files:
+                    if not source_file.exists():
+                        continue
+                    try:
+                        remove_local_file(source_file, CONFIG["remove_local_permanent"])
+                    except Exception as e:
+                        print(f"  [警告] 無法移除本機檔案 {source_file.name}: {e}")
+                        all_removed = False
+                if all_removed:
                     entry["local_removed"] = True
                     save_state(state)
-                except Exception as e:
-                    print(f"  [警告] 無法移除本機檔案 {video_path.name}: {e}")
         except KeyboardInterrupt:
             print("\n\n[已中斷] 進度已儲存，下次執行會自動續傳。")
             return
         except HttpError as e:
-            print(f"  [API 錯誤] 無法上傳 {video_path.name}: {e}")
+            print(f"  [API 錯誤] 無法上傳 {job['display_name']}: {e}")
             # Stop trying once the quota is exhausted
             if e.resp.status == 403 and b'quotaExceeded' in (e.content or b''):
                 print("  [停止] 已超出 YouTube API 配額，請稍後再執行（進度已儲存）。")
                 return
         except Exception as e:
-            print(f"  [例外錯誤] {video_path.name}: {e}")
+            print(f"  [例外錯誤] {job['display_name']}: {e}")
 
 if __name__ == '__main__':
     main()
