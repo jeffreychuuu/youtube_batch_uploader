@@ -285,12 +285,56 @@ def remove_local_file(file_path, permanent):
 
 
 def remove_empty_folders(file_path, root_folder):
-    """Remove empty parent folders up to, but not including, root_folder"""
+    """Remove empty parent folders up to and including root_folder"""
     root = Path(root_folder).expanduser().resolve()
     folder = Path(file_path).expanduser().resolve().parent
-    while folder != root and root in folder.parents:
+    if folder != root and root not in folder.parents:
+        return
+    while True:
         try:
             folder.rmdir()
         except OSError:
             break
+        if folder == root:
+            break
         folder = folder.parent
+
+
+def _remove_dir_if_empty(folder):
+    """Remove one directory if it is empty (ignoring .DS_Store)"""
+    try:
+        folder.rmdir()
+        return True
+    except OSError:
+        pass
+    try:
+        entries = list(folder.iterdir())
+    except OSError:
+        return False
+    if entries and all(
+        entry.name == '.DS_Store' and entry.is_file()
+        for entry in entries
+    ):
+        try:
+            for entry in entries:
+                entry.unlink()
+            folder.rmdir()
+            return True
+        except OSError:
+            return False
+    return False
+
+
+def prune_empty_dirs(root_folder):
+    """Remove empty folders under root, including root itself"""
+    root = Path(root_folder).expanduser().resolve()
+    if not root.exists() or not root.is_dir() or root.is_symlink():
+        return
+    directories = [
+        path for path in root.rglob('*')
+        if path.is_dir() and not path.is_symlink()
+    ]
+    directories.sort(key=lambda path: len(path.parts), reverse=True)
+    for folder in directories:
+        _remove_dir_if_empty(folder)
+    _remove_dir_if_empty(root)

@@ -230,7 +230,7 @@ cp config/cuts_config.example.json config/cuts_config.json
 | `convert_quality` | `libx264` 用 CRF `0`–`51`（越低畫質越好、檔案越大）；`h264_videotoolbox` 用 `q:v` `0`–`100`（越高畫質越好、檔案越大） |
 | `remove_original_after_conversion` | `true` = 轉檔後 MP4 驗證成功就移除原始檔案；之後再行 convert 亦會清走已轉檔 job 嘅原檔 |
 | `remove_original_permanent` | 轉檔時清理嘅移除方式：`false` = 移至垃圾桶（預設）/ `true` = 永久刪除 |
-| `remove_empty_folders` | `true` = 轉檔清理後，如果來源資料夾變成空，就一併移除（會向上清理，但唔會移除 `root_folder` 本身）。只喺 `remove_original_after_conversion` 為 `true` 時有效 |
+| `remove_empty_folders` | `true` = 每次轉檔 run 完之後，移除 `root_folder` 下所有空 folder，或者入面只有空 folder 嘅 folder，包括 `root_folder` 本身（但唔會移除佢嘅上一層）。只有 `.DS_Store` 嘅 folder 亦會當作空 |
 
 **`config/upload_config.json`** — 掃描、發佈（完全獨立）：
 

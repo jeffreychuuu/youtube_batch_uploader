@@ -4,7 +4,7 @@ from pathlib import Path
 
 from youtube_uploader.files import (
     build_upload_jobs, converted_output_path, converted_source_path,
-    natural_sort_key, remove_empty_folders,
+    natural_sort_key, prune_empty_dirs, remove_empty_folders,
 )
 
 
@@ -266,7 +266,7 @@ class ConvertedSourcePathTests(unittest.TestCase):
 
 
 class RemoveEmptyFoldersTests(unittest.TestCase):
-    def test_removes_empty_parent_chain_but_not_root(self):
+    def test_removes_empty_parent_chain_and_root(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / 'Root'
             leaf = root / 'A' / 'B'
@@ -279,6 +279,21 @@ class RemoveEmptyFoldersTests(unittest.TestCase):
 
             self.assertFalse(leaf.exists())
             self.assertFalse(leaf.parent.exists())
+            self.assertFalse(root.exists())
+
+    def test_keeps_root_when_not_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'Root'
+            leaf = root / 'A'
+            leaf.mkdir(parents=True)
+            (root / 'keep.txt').touch()
+            source = leaf / 'clip.AVI'
+            source.touch()
+            source.unlink()
+
+            remove_empty_folders(source, root)
+
+            self.assertFalse(leaf.exists())
             self.assertTrue(root.exists())
 
     def test_keeps_non_empty_parent(self):
@@ -308,6 +323,58 @@ class RemoveEmptyFoldersTests(unittest.TestCase):
             remove_empty_folders(source, root)
 
             self.assertTrue(other.exists())
+
+
+class PruneEmptyDirsTests(unittest.TestCase):
+    def test_removes_empty_tree_but_keeps_non_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'Root'
+            empty = root / 'Empty' / 'Sub'
+            empty.mkdir(parents=True)
+            keep = root / 'Keep'
+            keep.mkdir()
+            (keep / 'file.txt').touch()
+
+            prune_empty_dirs(root)
+
+            self.assertFalse(empty.exists())
+            self.assertFalse(empty.parent.exists())
+            self.assertTrue(keep.exists())
+            self.assertTrue(root.exists())
+
+    def test_removes_root_when_only_empty_folders(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'Root'
+            (root / 'A' / 'B').mkdir(parents=True)
+
+            prune_empty_dirs(root)
+
+            self.assertFalse(root.exists())
+
+    def test_removes_ds_store_only_folder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'Root'
+            folder = root / 'A'
+            folder.mkdir(parents=True)
+            (folder / '.DS_Store').touch()
+
+            prune_empty_dirs(root)
+
+            self.assertFalse(root.exists())
+
+    def test_does_not_follow_symlinks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'Root'
+            outside = Path(tmp) / 'Outside'
+            root.mkdir()
+            outside.mkdir()
+            (outside / 'keep.txt').touch()
+            (root / 'link').symlink_to(outside, target_is_directory=True)
+
+            prune_empty_dirs(root)
+
+            self.assertTrue(outside.exists())
+            self.assertTrue((outside / 'keep.txt').exists())
 
 
 if __name__ == '__main__':

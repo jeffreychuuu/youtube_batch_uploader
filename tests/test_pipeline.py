@@ -333,7 +333,7 @@ class RemoveOriginalSourcesTests(unittest.TestCase):
             self.assertFalse(source.exists())
             self.assertTrue(folder.exists())
 
-    def test_removes_empty_folder_when_enabled(self):
+    def test_removes_empty_folder_and_root_when_enabled(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / 'Root'
             folder = root / 'A'
@@ -350,7 +350,7 @@ class RemoveOriginalSourcesTests(unittest.TestCase):
 
             self.assertFalse(source.exists())
             self.assertFalse(folder.exists())
-            self.assertTrue(root.exists())
+            self.assertFalse(root.exists())
 
 
 class GoldenSmokeTests(unittest.TestCase):

@@ -230,7 +230,7 @@ cp config/cuts_config.example.json config/cuts_config.json
 | `convert_quality` | CRF `0`–`51` for `libx264` (lower = better quality, larger file); `q:v` `0`–`100` for `h264_videotoolbox` (higher = better quality, larger file) |
 | `remove_original_after_conversion` | `true` = remove the original files after the converted MP4 is verified; also cleans up sources of already-converted jobs on a later run |
 | `remove_original_permanent` | Removal method for conversion-time cleanup: `false` = move to Trash (default) / `true` = delete permanently |
-| `remove_empty_folders` | `true` = after conversion cleanup, also remove source folders that become empty, up to (but not including) `root_folder`. Only meaningful when `remove_original_after_conversion` is `true` |
+| `remove_empty_folders` | `true` = after a conversion run, remove every folder under `root_folder` that is empty or contains only empty folders, including `root_folder` itself (its parent is never removed). Folders containing only `.DS_Store` also count as empty |
 
 **`config/upload_config.json`** — how to scan and publish (fully independent):
 

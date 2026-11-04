@@ -1,6 +1,7 @@
 """Convert source videos to golden MP4s without uploading."""
 from .files import (
-    build_upload_jobs, converted_output_path, scan_video_files,
+    build_upload_jobs, converted_output_path, prune_empty_dirs,
+    scan_video_files,
 )
 from .golden import (
     ensure_unique_converted_targets, mark_golden_jobs,
@@ -63,6 +64,8 @@ def run_convert_only(config):
         except KeyboardInterrupt:
             print("\n\n[已中斷] 進度已儲存。")
             save_convert_state(state)
+            if config.get("remove_empty_folders"):
+                prune_empty_dirs(config["root_folder"])
             return {
                 "converted": converted, "skipped": skipped, "failed": failed,
             }
@@ -71,6 +74,8 @@ def run_convert_only(config):
             failed += 1
 
     save_convert_state(state)
+    if config.get("remove_empty_folders"):
+        prune_empty_dirs(config["root_folder"])
     print(
         f"\n[轉檔完成] 成功 {converted}，跳過 {skipped}，失敗 {failed}"
     )
