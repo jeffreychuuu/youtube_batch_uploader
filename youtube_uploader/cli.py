@@ -17,8 +17,15 @@ from .cuts import (
     normalise_cuts,
     print_old_video_links,
 )
-from .ffmpeg import convert_to_mp4, remove_cached_conversion
+from .ffmpeg import remove_cached_conversion
 from .files import build_upload_jobs, remove_local_file, scan_video_files
+from .golden import mark_golden_jobs, skip_converted_source_jobs
+from .pipeline import (
+    cleanup_plan_cache,
+    media_parts_for_plan,
+    prepare_source,
+    should_remove_sources,
+)
 from .state import get_entry, is_same_source, load_state, refresh_entry, save_state
 from .youtube_api import (
     add_video_to_playlist,
@@ -74,6 +81,16 @@ def main():
         )
     state = load_state()
     cuts_map = load_cuts()
+    mark_golden_jobs(jobs, state)
+    skipped = skip_converted_source_jobs(jobs, state)
+    if skipped:
+        print(f"[略過] 已匯出 golden source：{', '.join(skipped)}")
+    jobs = [job for job in jobs if not job.get("skip_reason")]
+    if skipped and not any(job.get("golden") for job in jobs):
+        sys.exit(
+            "[錯誤] 有 golden source 記錄，但喺掃描範圍搵唔到對應 MP4；"
+            "請確認 root_folder 包含 golden 檔案。"
+        )
     _ensure_unique_job_keys(jobs, cuts_map)
     part_hours = config["part_duration_hours"]
     used_cut_keys = set()
@@ -99,18 +116,13 @@ def main():
 
     # Upload each video and add it to the playlist
     for idx, job in enumerate(jobs, start=1):
-        files = job["files"]
         print(f"\n處理第 [{idx}/{len(jobs)}] 部影片...")
-        key = str(files[0].resolve())
-        entry = state["uploads"].get(key)
         try:
+            plan = prepare_source(job, state, config)
+            files = plan.files
+            key = plan.key
+            entry = state["uploads"].get(key)
             cuts = get_job_cuts(cuts_map, job, part_hours)
-            if cuts and not job["convert"]:
-                print(
-                    f"  [錯誤] {job['display_name']} 有 cut-list，但呢個格式唔會經 ffmpeg 轉檔；"
-                    "請將副檔名加入 convert_extensions，或先手動剪好再上傳。"
-                )
-                continue
             stored_hours = entry.get("part_duration_hours") if entry else None
             stored_cuts = entry.get("cuts") if entry else None
             try:
@@ -138,16 +150,14 @@ def main():
             elif not is_same_source(entry, files):
                 print(f"[變更] 檔案已修改，重新處理：{job['display_name']}")
                 print_old_video_links(entry)
-                if job["convert"]:
-                    remove_cached_conversion(files, cache_hours, stored_cuts_norm)
+                remove_cached_conversion(files, cache_hours, stored_cuts_norm)
                 refresh_entry(entry, files)
                 apply_entry_settings(entry, part_hours, cuts)
                 save_state(state)
             elif cuts_added_or_changed:
                 print(f"[變更] cut 範圍已更新，重新處理：{job['display_name']}")
                 print_old_video_links(entry)
-                if job["convert"]:
-                    remove_cached_conversion(files, cache_hours, stored_cuts_norm)
+                remove_cached_conversion(files, cache_hours, stored_cuts_norm)
                 refresh_entry(entry, files)
                 apply_entry_settings(entry, part_hours, cuts)
                 save_state(state)
@@ -165,8 +175,7 @@ def main():
             elif hours_changed and not completed:
                 print(f"[變更] 分段長度已變更，重新處理：{job['display_name']}")
                 print_old_video_links(entry)
-                if job["convert"]:
-                    remove_cached_conversion(files, cache_hours, stored_cuts_norm)
+                remove_cached_conversion(files, cache_hours, stored_cuts_norm)
                 refresh_entry(entry, files)
                 apply_entry_settings(entry, part_hours, cuts)
                 save_state(state)
@@ -209,10 +218,7 @@ def main():
             if all_done:
                 print(f"[略過] 已上傳過：{job['display_name']}")
             else:
-                if job["convert"]:
-                    media_parts = convert_to_mp4(files, part_hours, cuts)
-                else:
-                    media_parts = [files[0]]
+                media_parts = media_parts_for_plan(plan, part_hours, cuts)
 
                 requested_parts = (
                     job_part_numbers(cuts_map, job) if part_hours > 0 else set()
@@ -239,7 +245,7 @@ def main():
                     display_name = title
                     if len(media_parts) > 1:
                         display_name += f"（{part_index}/{len(media_parts)}）"
-                    if job["convert"]:
+                    if job["convert"] or plan.golden:
                         display_name += "（已轉檔為 MP4）"
                     upload_video(
                         youtube, media_path, title, display_name,
@@ -260,13 +266,13 @@ def main():
             all_done = bool(parts_state) and all(
                 part.get("video_id") for part in parts_state
             )
-            if all_done and job["convert"]:
-                remove_cached_conversion(files, part_hours, cuts)
+            if all_done:
+                cleanup_plan_cache(plan, part_hours, cuts)
 
             # Remove local files only after every part has been uploaded
             if (
                 all_done
-                and config["remove_local_after_upload"]
+                and should_remove_sources(plan, config)
                 and not entry.get("local_removed")
             ):
                 all_removed = True
