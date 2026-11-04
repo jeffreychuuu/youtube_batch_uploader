@@ -1,8 +1,11 @@
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from youtube_uploader.ffmpeg import remove_cached_conversion, verify_video
 from youtube_uploader.pipeline import (
     SourcePlan, cleanup_plan_cache, media_parts_for_plan, prepare_source,
     should_remove_sources,
@@ -180,6 +183,37 @@ class CleanupAndRemovalTests(unittest.TestCase):
         self.assertTrue(
             should_remove_sources(plan, {'remove_local_after_upload': True})
         )
+
+
+class GoldenSmokeTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('ffmpeg'), 'ffmpeg not installed')
+    def test_real_conversion_creates_golden(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / 'Source.mkv'
+            subprocess.run([
+                'ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
+                '-f', 'lavfi', '-i', 'testsrc=duration=2:size=320x240:rate=10',
+                '-f', 'lavfi', '-i', 'sine=frequency=440:duration=2',
+                '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac',
+                str(source),
+            ], check=True)
+            job = {'title': 'Source', 'files': [source], 'convert': True}
+            state = {'uploads': {}, 'golden_sources': {}}
+            config = {
+                'export_converted_source': True,
+                'remove_original_after_conversion': False,
+                'remove_original_permanent': False,
+            }
+            try:
+                with patch('youtube_uploader.pipeline.save_state'):
+                    plan = prepare_source(job, state, config)
+                target = Path(tmp) / 'Source.mp4'
+                self.assertTrue(target.exists())
+                self.assertTrue(plan.golden)
+                self.assertIn(str(target.resolve()), state['golden_sources'])
+                verify_video(target)
+            finally:
+                remove_cached_conversion([source], 0, [])
 
 
 if __name__ == '__main__':
