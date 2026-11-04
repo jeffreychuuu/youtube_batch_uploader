@@ -258,6 +258,7 @@ def convert_to_mp4(files, cuts=None, encoder=None, quality=None):
         raise RuntimeError('無法讀取來源音訊 sample rate，請檢查檔案')
 
     source_desc = describe_inputs(files)
+    print(f"  [來源] {files[0].parent}")
     if len(files) > 1:
         for file_path in files:
             print(f"    - {file_path.name}")
