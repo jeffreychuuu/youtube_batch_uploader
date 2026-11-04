@@ -12,6 +12,8 @@
 
 - 遞迴掃描指定資料夾，自動上傳所有支援格式的影片
 - 支援 VOB（DVD）：同一資料夾的 `VTS_01_1.VOB`、`VTS_01_2.VOB`… 會按編號合併並用 ffmpeg 轉成 MP4，合併後的影片以資料夾名稱為標題
+- 長片會按 `part_duration_hours` 分段（預設每 1 小時一段），標題加上 `[part 1]`、`[part 2]`
+- 支援 cut-list：上傳前剪走被 YouTube flag 嘅時間範圍（`cuts.json`）
 - 可透過 `convert_extensions` 指定其他格式（例如 AVI）先用 ffmpeg 轉檔
 - 上傳完成後自動加入（或建立）指定播放清單，重跑不會重複加入
 - 進度記錄於 `upload_state.json`，已完成的檔案重跑時直接跳過
@@ -28,7 +30,7 @@
 - macOS（Windows / Linux 亦適用，只需調整路徑）
 - Python 3.8 或以上
 - ffmpeg（只在需要上傳 VOB，或把其他格式加入 `convert_extensions` 時需要）
-- 一個已建立頻道的 YouTube / Google 帳號
+- 一個已建立頻道的 YouTube / Google 帳號；上傳超過 15 分鐘的影片需要驗證帳戶（YouTube 上限為每段 12 小時 / 256 GB）
 - 已啟用 YouTube Data API v3 的 Google Cloud 專案
 
 ---
@@ -103,7 +105,9 @@ Windows：由 [ffmpeg.org](https://ffmpeg.org/) 下載並加入 `PATH`。
 - 合併後的影片以資料夾名稱為標題（如果 VOB 放在 `VIDEO_TS` 內，會改用上一層資料夾名稱）
 - 略過 DVD 選單檔案（`*_0.VOB` 與 `VIDEO_TS.VOB`）
 - 單一 VOB 則沿用原本的檔名作為標題
-- 將轉檔結果暫存在 `.converted/`，上傳中斷後重跑毋須重新編碼；上傳成功後自動刪除
+- 長片按 `part_duration_hours` 分段（預設每 1 小時），每段標題為 `<名稱> [part N]`
+- 分段只適用於經 ffmpeg 處理的影片（VOB，或加入 `convert_extensions` 的格式）
+- 將轉檔結果（可能有多段）暫存在 `.converted/`，上傳中斷後重跑毋須重新編碼；所有分段上傳成功後自動刪除
 
 也就是說，你只需要：
 
@@ -118,6 +122,29 @@ Windows：由 [ffmpeg.org](https://ffmpeg.org/) 下載並加入 `PATH`。
 三條影片都會被上傳，標題分別是「影片 A」、「影片 B」、「影片 C」。
 
 如果你想用 CSV 指定每條影片的標題、描述、標籤、權限等，需要另外擴充 Script（目前尚未支援）。
+
+### 2.1 Cut-list：剪走被 YouTube flag 嘅片段
+
+如果 YouTube 話某條片違規並列出要移除嘅時間範圍，喺 script 隔離建立 `cuts.json`：
+
+```json
+{
+  "My Video": [
+    "21:55-22:45",
+    "23:20-24:35",
+    "24:45-26:25"
+  ]
+}
+```
+
+- Key 係 job 標題（檔名不含副檔名；合併 VOB 就用資料夾名）。亦可以用第一個來源檔嘅絕對路徑。
+- 時間格式：`MM:SS` 或 `HH:MM:SS`；開始/結束用 `-`、`–`、`—`、`~` 或 `to` 分隔。
+- 冇 part suffix 嘅 key，範圍係指 **合併後完整影片嘅 timeline**（同 YouTube 顯示嗰條 timeline 一樣），喺分段之前剪。
+- 如果 YouTube flag 嘅係某個 part，可以直接用 part 標題做 key，例如 `"My Video [part 2]": ["5:00-6:00"]`。Script 會自動用同一個 `part_duration_hours` 加返該 part 嘅起始 offset，唔使你手動計完整 timeline。呢個假設個 part 係由未剪嘅合併影片、用目前 part 長度產生。
+- 剪輯會喺 ffmpeg 轉檔時進行，之後先照常分段。
+- 改 cut-list 會令轉檔 cache 失效。如果條片之前已上傳、來源檔案仍然存在，script 會重新處理並上傳修正版；舊嘅 YouTube 影片唔會自動刪除。
+- 本機來源檔案嘅刪除一律跟隨 `remove_local_after_upload`，設有 cut-list 都一樣。
+- `cuts.json` 已加入 `.gitignore`；格式可參考 `cuts.example.json`。
 
 ---
 
@@ -139,6 +166,7 @@ cp config.example.json config.json
   "made_for_kids": false,
   "video_extensions": [".mp4", ".mov", ".mkv", ".avi", ".m4v", ".vob"],
   "convert_extensions": [".vob"],
+  "part_duration_hours": 1,
   "chunk_size_mb": 32,
   "max_retries": 5,
   "remove_local_after_upload": false,
@@ -156,6 +184,7 @@ cp config.example.json config.json
 | `made_for_kids` | `True` = 兒童導向內容；`False` = 非兒童導向 |
 | `video_extensions` | 要掃描的副檔名 |
 | `convert_extensions` | 上傳前先用 ffmpeg 轉成 MP4 的副檔名（預設 `[".vob"]`）；加入 `".avi"` 可強制 AVI 轉檔 |
+| `part_duration_hours` | 每段長度（小時），預設 `1`；`0` = 不分段。未驗證帳戶可設 `0.25`（15 分鐘上限） |
 | `chunk_size_mb` | 每個上傳分塊的大小，必須為 256KB 的整數倍；大檔案建議 16–32 |
 | `max_retries` | 網絡錯誤 / 5xx 時每個分塊的最多重試次數 |
 | `remove_local_after_upload` | `true` = 上傳成功後移除本機影片；`false` = 保留（預設） |
@@ -179,8 +208,8 @@ python3 batch_upload.py
 1. 掃描資料夾、合併多段 VOB，並列出上傳項目數量
 2. 開啟瀏覽器進行 OAuth 授權（第一次才需要）
 3. 找到或建立播放清單
-4. 如有 VOB，先用 ffmpeg 轉成 MP4
-5. 逐條上傳影片，顯示進度百分比
+4. 如有 VOB，先用 ffmpeg 轉成 MP4，並按設定分段
+5. 逐條上傳影片（或分段），顯示進度百分比
 6. 上傳完成後加入播放清單
 
 ### 3.3 關於「草稿」與發佈
@@ -211,7 +240,8 @@ YouTube API **沒有「草稿」概念**，上傳完成後影片即會以 `priva
 
 - 只會在影片**上傳成功並取得 video ID** 之後才移除本機檔案
 - 如果上傳失敗，本機檔案不會被刪除
-- 合併上傳的 VOB，會一併移除所有來源分段檔案
+- 合併或分段上傳的 VOB，要等所有分段都上傳成功先會移除來源檔案
+- 有 cut-list 嘅影片亦一樣，會跟 `remove_local_after_upload` 清理本機檔案
 - 之前已經上傳過的影片，重跑時亦會按照此設定清理
 - 移除失敗（例如權限不足）只會顯示警告，不會中斷其他影片
 - `remove_local_permanent: false`（垃圾桶模式）在 macOS 首次使用時，系統可能會詢問「終端機想控制 Finder」，需要允許
@@ -232,21 +262,31 @@ Script 會在同一資料夾產生 `upload_state.json`，記錄每條影片：
 ```json
 {
   "uploads": {
-    "/path/to/your/videos/video1.mp4": {
-      "size": 104857600,
+    "/path/to/your/videos/My Video/VTS_01_1.VOB": {
+      "size": 4596858880,
       "mtime": 1700000000.0,
-      "video_id": "xxxxxxxxxxx",
-      "playlist_added": true,
-      "bytes_sent": 104857600
+      "part_duration_hours": 1,
+      "local_removed": true,
+      "parts": [
+        {
+          "upload_size": 566007357,
+          "bytes_sent": 566007357,
+          "video_id": "xxxxxxxxxxx",
+          "playlist_added": true
+        }
+      ]
     }
   }
 }
 ```
 
+- `parts` 內每個分段有一個 entry；單段影片只有一個 entry
 - 每上傳完一個分塊就會更新一次
-- 已上傳完成的檔案，下次執行會直接跳過
-- 未完成的上傳會保存 `resumable_uri` 與 `bytes_sent`，下次執行自動續傳
+- 已上傳完成的分段，下次執行會直接跳過
+- 未完成的分段會保存 `resumable_uri` 與 `bytes_sent`，下次執行自動續傳
 - 如果檔案大小或修改時間改變，會當作新版本重新上傳
+- 更改 `part_duration_hours` 只會套用於新項目或未完成項目；已完成上傳的影片唔會自動重新上傳
+- 舊版本寫落嘅 state（頂層 `video_id`）會自動遷移
 
 ### 4.2 中途斷了怎麼辦？
 
@@ -310,6 +350,14 @@ AVI 是 YouTube 官方支援的格式，但 AVI 內含的某些編碼未必支�
 
 合併與重新編碼 DVD 影片相當耗用 CPU。轉檔結果會暫存在 `.converted/` 直到上傳成功，請預留大約等於來源總大小的可用空間。
 
+### 上傳時被指影片太長
+
+未驗證的 YouTube 帳戶只可以上傳 15 分鐘以內的影片。可以前往 <https://www.youtube.com/verify> 驗證帳戶，或將 `config.json` 的 `"part_duration_hours"` 設為 `0.25`，每 15 分鐘分割一段。已驗證帳戶每段最多 12 小時 / 256 GB。
+
+### 影片分成比預期更多段
+
+`part_duration_hours` 控制每段長度（預設 `1`，設 `0` 即不分段）。設定只會套用於新項目或未完成項目；已完成上傳的影片唔會自動重新上傳。如要重新處理某個項目，請喺 `upload_state.json` 刪除該 entry。
+
 ### 上傳中途斷線 / 電腦休眠
 
 Script 會自動重試；如果仍然失敗，再執行一次就會從斷點續傳。
@@ -342,6 +390,8 @@ youtube_batch_uploader/
 ├── client_secrets.json   # OAuth 憑證（自行下載，請勿分享）
 ├── token.pickle          # 登入 token（首次執行後產生，請勿分享）
 ├── upload_state.json     # 上傳進度記錄（自動產生）
+├── cuts.json             # 本機 cut-list（不會 commit）
+├── cuts.example.json     # cut-list 範例
 ├── .converted/           # ffmpeg 轉檔暫存（自動產生，可安全刪除）
 ├── README.md             # 英文說明文件
 └── README.zh-TW.md       # 繁體中文說明文件

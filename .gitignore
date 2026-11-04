@@ -11,6 +11,9 @@ config.json
 upload_state.json
 upload_state.json.tmp
 
+# ===== 影片剪輯清單（包含個人影片標題）=====
+cuts.json
+
 # ===== ffmpeg 轉檔暫存 =====
 .converted/
 

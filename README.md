@@ -12,6 +12,8 @@ Supports **resumable uploads**: if the connection drops, the machine shuts down,
 
 - Recursively scans a folder and uploads every supported video
 - VOB (DVD) support: multi-segment `VTS_01_1.VOB`, `VTS_01_2.VOB`, ... files are merged and transcoded to MP4 with ffmpeg; the merged video is titled after its folder
+- Long videos are split into parts (default every 1 hour) and titled `<name> [part 1]`, `<name> [part 2]`, ...
+- Cut-list support: remove time ranges flagged by YouTube before upload (`cuts.json`)
 - Optional ffmpeg transcoding for other formats (e.g. AVI) via `convert_extensions`
 - Adds uploaded videos to a playlist (creating it if needed); reruns never add duplicates
 - Progress is stored in `upload_state.json`; completed files are skipped on rerun
@@ -28,7 +30,7 @@ Supports **resumable uploads**: if the connection drops, the machine shuts down,
 - macOS (Windows / Linux also work; adjust paths as needed)
 - Python 3.8 or later
 - ffmpeg (only required when uploading VOB, or other formats added to `convert_extensions`)
-- A YouTube / Google account with a channel
+- A YouTube / Google account with a channel; uploads longer than 15 minutes require a verified account (YouTube's maximum is 12 hours / 256 GB per video)
 - A Google Cloud project with the YouTube Data API v3 enabled
 
 ---
@@ -103,7 +105,9 @@ Supported extensions (editable in `CONFIG["video_extensions"]`):
 - Titles the merged video after its folder (using the parent folder name when the files are inside `VIDEO_TS`)
 - Skips DVD menu files (`*_0.VOB` and `VIDEO_TS.VOB`)
 - Uses the original file name as the title for a standalone VOB
-- Caches the converted MP4 in `.converted/` so an interrupted upload resumes without re-encoding; the cache is removed after a successful upload
+- Splits long results into parts according to `part_duration_hours` (default 1 hour); each part is titled `<name> [part N]`
+- Splitting applies to videos processed by ffmpeg (VOB, or other formats added to `convert_extensions`)
+- Caches the converted MP4 parts in `.converted/` so an interrupted upload resumes without re-encoding; the cache is removed after all parts upload successfully
 
 In other words, you only need:
 
@@ -118,6 +122,29 @@ In other words, you only need:
 All three videos will be uploaded with the titles "Video A", "Video B", and "Video C".
 
 If you want to specify each video's title, description, tags, or privacy with a CSV file, you need to extend the script (currently unsupported).
+
+### 2.1 Cut-list: remove flagged segments
+
+If YouTube flags a video and gives time ranges to remove, create `cuts.json` next to the script:
+
+```json
+{
+  "My Video": [
+    "21:55-22:45",
+    "23:20-24:35",
+    "24:45-26:25"
+  ]
+}
+```
+
+- The key is the job title (the file name without extension, or the folder name for a merged VOB). The resolved first source path also works.
+- Time formats: `MM:SS` or `HH:MM:SS`. Separate start/end with `-`, `–`, `—`, `~`, or `to`.
+- Ranges without a part suffix refer to the **full merged video timeline** (the same timeline YouTube shows), before splitting.
+- If YouTube flags a specific part, use the part title as the key, e.g. `"My Video [part 2]": ["5:00-6:00"]`. The script automatically adds that part's start offset using the same `part_duration_hours`, so you do not need to calculate the full-timeline time. This assumes the part was produced from the uncut merged video with the current part length.
+- The ranges are removed during the ffmpeg conversion; the remaining video is then split normally.
+- Changing the cut list invalidates the conversion cache. If the job was already uploaded and the source files still exist, the script re-processes it and uploads a corrected version. The old YouTube video is **not** deleted automatically.
+- Local source removal follows `remove_local_after_upload` as usual, even when a cut list is set.
+- `cuts.json` is gitignored; see `cuts.example.json` for the format.
 
 ---
 
@@ -139,6 +166,7 @@ cp config.example.json config.json
   "made_for_kids": false,
   "video_extensions": [".mp4", ".mov", ".mkv", ".avi", ".m4v", ".vob"],
   "convert_extensions": [".vob"],
+  "part_duration_hours": 1,
   "chunk_size_mb": 32,
   "max_retries": 5,
   "remove_local_after_upload": false,
@@ -156,6 +184,7 @@ cp config.example.json config.json
 | `made_for_kids` | `True` = content made for kids; `False` = not made for kids |
 | `video_extensions` | Extensions to scan |
 | `convert_extensions` | Extensions transcoded to MP4 with ffmpeg before upload (default `[".vob"]`); add `".avi"` to force AVI transcoding |
+| `part_duration_hours` | Length of each part in hours (default `1`; `0` = never split). Set `0.25` for unverified accounts (15-minute limit) |
 | `chunk_size_mb` | Size of each upload chunk; must be a multiple of 256 KB. 16–32 recommended for large files |
 | `max_retries` | Maximum retries per chunk on network errors / 5xx |
 | `remove_local_after_upload` | `true` = remove the local video after a successful upload; `false` = keep it (default) |
@@ -179,8 +208,8 @@ The run will:
 1. Scan the folder, merge multi-segment VOB files, and report how many upload items were found
 2. Open the browser for OAuth authorization (first run only)
 3. Find or create the playlist
-4. Convert VOB files to MP4 with ffmpeg (if there are any)
-5. Upload each video one by one, showing a progress percentage
+4. Convert VOB files to MP4 and split long videos into parts with ffmpeg (if configured)
+5. Upload each video (or part) one by one, showing a progress percentage
 6. Add each uploaded video to the playlist
 
 ### 3.3 "Draft" and publishing
@@ -211,7 +240,7 @@ Notes:
 
 - A local file is removed only after the video **uploads successfully and returns a video ID**
 - If an upload fails, the local file is not deleted
-- For a merged VOB upload, all source segments are removed together
+- For a merged or split VOB upload, all source segments are removed only after every part has uploaded successfully
 - Videos uploaded previously are also cleaned up on rerun according to this setting
 - A removal failure (e.g. insufficient permissions) only prints a warning and does not interrupt other videos
 - On macOS, the first use of trash mode (`remove_local_permanent: false`) may prompt "Terminal wants to control Finder"; allow it
@@ -232,21 +261,31 @@ The script creates `upload_state.json` in the same folder, recording each video:
 ```json
 {
   "uploads": {
-    "/path/to/your/videos/video1.mp4": {
-      "size": 104857600,
+    "/path/to/your/videos/My Video/VTS_01_1.VOB": {
+      "size": 4596858880,
       "mtime": 1700000000.0,
-      "video_id": "xxxxxxxxxxx",
-      "playlist_added": true,
-      "bytes_sent": 104857600
+      "part_duration_hours": 1,
+      "local_removed": true,
+      "parts": [
+        {
+          "upload_size": 566007357,
+          "bytes_sent": 566007357,
+          "video_id": "xxxxxxxxxxx",
+          "playlist_added": true
+        }
+      ]
     }
   }
 }
 ```
 
+- `parts` contains one entry per uploaded part; a single-video job has one entry
 - Updated after every uploaded chunk
-- Files that are already fully uploaded are skipped on the next run
-- Unfinished uploads keep their `resumable_uri` and `bytes_sent`, and resume automatically on the next run
+- Parts that are already fully uploaded are skipped on the next run
+- Unfinished parts keep their `resumable_uri` and `bytes_sent`, and resume automatically on the next run
 - If the file size or modification time changes, it is treated as a new version and re-uploaded
+- Changing `part_duration_hours` applies to new or unfinished jobs; completed jobs are not re-uploaded automatically
+- State files written by older versions (with a top-level `video_id`) are migrated automatically
 
 ### 4.2 What if the upload stops midway?
 
@@ -310,6 +349,14 @@ AVI is officially supported by YouTube, but some codecs found inside AVI files a
 
 Merging and re-encoding DVD video is CPU-intensive. The result is cached in `.converted/` until the upload succeeds, so keep free disk space roughly equal to the total source size.
 
+### Upload is rejected because the video is too long
+
+Unverified YouTube accounts can only upload videos up to 15 minutes. Either verify your account at <https://www.youtube.com/verify>, or set `"part_duration_hours": 0.25` in `config.json` to split every 15 minutes. Verified accounts can upload up to 12 hours / 256 GB per video.
+
+### Videos were split into more parts than expected
+
+`part_duration_hours` controls the part length (default `1`; set `0` to never split). The setting applies to new or unfinished jobs; completed uploads are not re-uploaded automatically. To re-process a completed job, delete its entry from `upload_state.json`.
+
 ### Connection drops / computer sleeps during upload
 
 The script retries automatically; if it still fails, run it again and it resumes from the breakpoint.
@@ -342,6 +389,8 @@ youtube_batch_uploader/
 ├── client_secrets.json   # OAuth credentials (download yourself, never share)
 ├── token.pickle          # Login token (created on first run, never share)
 ├── upload_state.json     # Upload progress record (created automatically)
+├── cuts.json             # Local cut-list for flagged videos (not committed)
+├── cuts.example.json     # Cut-list example
 ├── .converted/           # Temporary MP4 conversions (created automatically, safe to delete)
 ├── README.md             # English documentation
 └── README.zh-TW.md       # Traditional Chinese documentation
