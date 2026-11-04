@@ -1,6 +1,7 @@
 import json
 import os
 import pickle
+import re
 import subprocess
 import sys
 import time
@@ -360,8 +361,15 @@ def remove_local_file(file_path, permanent):
         move_to_trash(file_path)
         print(f"  [清理] 已將本機檔案移到垃圾桶: {file_path}")
 
+def natural_sort_key(path):
+    """Sort key that compares digit runs as numbers (2 before 10) and ignores case"""
+    return [
+        int(part) if part.isdigit() else part.lower()
+        for part in re.split(r'(\d+)', str(path))
+    ]
+
 def scan_video_files(folder_path, extensions):
-    """Recursively find all video files in the given folder"""
+    """Recursively find all video files in the given folder, in natural order"""
     folder = Path(folder_path)
     if not folder.exists() or not folder.is_dir():
         sys.exit(f"[錯誤] 資料夾不存在或非有效目錄: {folder_path}")
@@ -370,7 +378,7 @@ def scan_video_files(folder_path, extensions):
         f for f in folder.rglob("*")
         if f.is_file() and f.suffix.lower() in extensions
     ]
-    return sorted(matched_files)
+    return sorted(matched_files, key=natural_sort_key)
 
 def main():
     chunk_bytes = CONFIG["chunk_size_mb"] * 1024 * 1024
