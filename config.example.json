@@ -5,6 +5,8 @@
   "made_for_kids": false,
   "video_extensions": [".mp4", ".mov", ".mkv", ".avi", ".m4v", ".vob"],
   "convert_extensions": [".vob"],
+  "combine_mode": "vob",
+  "combine_extensions": [".vob"],
   "part_duration_hours": 1,
   "chunk_size_mb": 32,
   "max_retries": 5,

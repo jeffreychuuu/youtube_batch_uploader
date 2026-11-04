@@ -174,6 +174,8 @@ cp config.example.json config.json
   "made_for_kids": false,
   "video_extensions": [".mp4", ".mov", ".mkv", ".avi", ".m4v", ".vob"],
   "convert_extensions": [".vob"],
+  "combine_mode": "vob",
+  "combine_extensions": [".vob"],
   "part_duration_hours": 1,
   "chunk_size_mb": 32,
   "max_retries": 5,
@@ -195,6 +197,8 @@ cp config.example.json config.json
 | `made_for_kids` | `True` = content made for kids; `False` = not made for kids |
 | `video_extensions` | Extensions to scan |
 | `convert_extensions` | Extensions transcoded to MP4 with ffmpeg before upload (default `[".vob"]`); add `".avi"` to force AVI transcoding. This only controls conversion — cuts are accepted for every format |
+| `combine_mode` | `"vob"` (default) merges VOB title sets only; `"folder"` also merges every file of a `combine_extensions` extension in the same folder, in natural order; `"none"` makes every file its own job |
+| `combine_extensions` | Extensions eligible for combining in `"folder"` mode (default `[".vob"]`). Every entry must also be in `convert_extensions` |
 | `part_duration_hours` | Length of each part in hours (default `1`; `0` = never split). Applies to **every** upload, including MP4/MOV/AVI. Set `0.25` for unverified accounts (15-minute limit) |
 | `chunk_size_mb` | Size of each upload chunk; must be a multiple of 256 KB. 16–32 recommended for large files |
 | `max_retries` | Maximum retries per chunk on network errors / 5xx |
@@ -203,6 +207,8 @@ cp config.example.json config.json
 | `export_converted_source` | `true` = keep the converted MP4 next to the source (or its `VIDEO_TS` parent) and reuse it as the source of record |
 | `remove_original_after_conversion` | `true` = remove the original files after the converted MP4 is verified (requires `export_converted_source`) |
 | `remove_original_permanent` | Removal method for conversion-time cleanup: `false` = move to Trash (default) / `true` = delete permanently. Independent of `remove_local_permanent` |
+
+**Combining files.** `combine_mode` decides which files are merged before conversion. `"vob"` keeps the DVD title-set behavior. `"folder"` merges every file of a `combine_extensions` extension in the same folder (for example `.m2ts` segments), in natural order. `"none"` makes every file its own upload. A combined group produces one golden MP4 and one upload (split by `part_duration_hours`); with `"none"`, each source file gets its own title, golden MP4 and upload.
 
 **Converted sources and golden files.** When `export_converted_source` is enabled, a converted file becomes a *golden source*: later runs cut, split and upload from it instead of re-reading the originals. Cut-free uploads are split with stream copy (fast, no re-encode); uploads with cuts are re-encoded. `remove_original_after_conversion` is the only setting that removes the original files at conversion time — `remove_local_after_upload` never removes a golden file. A golden job keeps the cuts namespace of its source (`folders` for merged VOB jobs, `files` for single-file jobs), so existing `cuts.json` keys keep working after conversion. Two sources that would write the same golden file stop the run instead of overwriting.
 

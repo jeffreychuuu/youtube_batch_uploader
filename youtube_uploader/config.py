@@ -25,6 +25,11 @@ DEFAULT_CONFIG = {
     # Extensions converted to MP4 with ffmpeg before upload (VOB needs this;
     # add e.g. ".avi" here if you want every AVI transcoded for compatibility)
     "convert_extensions": [".vob"],
+    # Combining behavior: "vob" (title sets only), "folder" (same folder +
+    # extension), or "none" (every file is its own job)
+    "combine_mode": "vob",
+    # Extensions eligible for combining in "folder" mode
+    "combine_extensions": [".vob"],
     # Split long videos into parts of this many hours (0 = never split)
     "part_duration_hours": 1,
     "chunk_size_mb": 32,
@@ -74,6 +79,33 @@ def load_config(config_file=CONFIG_FILE):
         for ext in config["convert_extensions"]
     ):
         sys.exit("[錯誤] convert_extensions 每項都必須係以 '.' 開頭的字串，例如 \".vob\"。")
+    if config["combine_mode"] not in ("vob", "folder", "none"):
+        sys.exit(
+            "[錯誤] combine_mode 只可以係 'vob'、'folder' 或 'none'。"
+        )
+    if not isinstance(config["combine_extensions"], list):
+        sys.exit(
+            "[錯誤] combine_extensions 必須係 JSON 陣列，例如 [\".vob\"]。"
+        )
+    if any(
+        not isinstance(ext, str) or not ext.startswith('.')
+        for ext in config["combine_extensions"]
+    ):
+        sys.exit(
+            "[錯誤] combine_extensions 每項都必須係以 '.' 開頭的字串，"
+            "例如 \".vob\"。"
+        )
+    if config["combine_mode"] == "folder":
+        convertible = {ext.lower() for ext in config["convert_extensions"]}
+        missing = sorted(
+            {ext.lower() for ext in config["combine_extensions"]} - convertible
+        )
+        if missing:
+            sys.exit(
+                "[錯誤] combine_mode=folder 時，combine_extensions 必須全部"
+                f"喺 convert_extensions 入面：{', '.join(missing)}"
+            )
+
     part_hours = config["part_duration_hours"]
     if isinstance(part_hours, bool) or not isinstance(part_hours, (int, float)):
         sys.exit("[錯誤] part_duration_hours 必須係數字（例如 1 表示每 1 小時一段）。")

@@ -54,6 +54,110 @@ class BuildUploadJobsTests(unittest.TestCase):
             self.assertEqual(build_upload_jobs([menu], {'.vob'}), [])
 
 
+class CombineModeTests(unittest.TestCase):
+    def test_none_mode_keeps_vob_segments_separate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / 'Folder'
+            folder.mkdir()
+            files = [folder / 'VTS_01_1.VOB', folder / 'VTS_01_2.VOB']
+            for path in files:
+                path.touch()
+
+            jobs = build_upload_jobs(files, {'.vob'}, combine_mode='none')
+
+            self.assertEqual(
+                [job['title'] for job in jobs], ['VTS_01_1', 'VTS_01_2']
+            )
+            self.assertTrue(all(job['convert'] for job in jobs))
+
+    def test_folder_mode_groups_same_extension(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / 'Folder'
+            folder.mkdir()
+            files = [folder / 'b.m2ts', folder / 'a.m2ts']
+            for path in files:
+                path.touch()
+
+            jobs = build_upload_jobs(
+                files, {'.m2ts'},
+                combine_mode='folder', combine_extensions=['.m2ts'],
+            )
+
+            self.assertEqual(len(jobs), 1)
+            self.assertEqual(jobs[0]['title'], 'Folder')
+            self.assertEqual(
+                jobs[0]['files'], [folder / 'a.m2ts', folder / 'b.m2ts']
+            )
+
+    def test_folder_mode_keeps_vob_title_sets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / 'Folder'
+            folder.mkdir()
+            files = [folder / 'VTS_01_1.VOB', folder / 'VTS_01_2.VOB']
+            for path in files:
+                path.touch()
+
+            jobs = build_upload_jobs(
+                files, {'.vob'},
+                combine_mode='folder', combine_extensions=['.vob'],
+            )
+
+            self.assertEqual(len(jobs), 1)
+            self.assertEqual(jobs[0]['title'], 'Folder')
+
+    def test_vob_mode_ignores_other_extensions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / 'Folder'
+            folder.mkdir()
+            files = [folder / 'a.m2ts', folder / 'b.m2ts']
+            for path in files:
+                path.touch()
+
+            jobs = build_upload_jobs(
+                files, {'.m2ts'},
+                combine_mode='vob', combine_extensions=['.m2ts'],
+            )
+
+            self.assertEqual(len(jobs), 2)
+
+    def test_folder_mode_disambiguates_extension_groups(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / 'Folder'
+            folder.mkdir()
+            files = [
+                folder / 'a.m2ts', folder / 'b.m2ts',
+                folder / 'c.avi', folder / 'd.avi',
+            ]
+            for path in files:
+                path.touch()
+
+            jobs = build_upload_jobs(
+                files, {'.m2ts', '.avi'},
+                combine_mode='folder',
+                combine_extensions=['.m2ts', '.avi'],
+            )
+
+            self.assertEqual(
+                sorted(job['title'] for job in jobs),
+                ['Folder (AVI)', 'Folder (M2TS)'],
+            )
+
+    def test_folder_mode_ignores_unlisted_extensions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / 'Folder'
+            folder.mkdir()
+            files = [folder / 'a.m2ts', folder / 'b.m2ts']
+            for path in files:
+                path.touch()
+
+            jobs = build_upload_jobs(
+                files, {'.m2ts'},
+                combine_mode='folder', combine_extensions=['.vob'],
+            )
+
+            self.assertEqual(len(jobs), 2)
+
+
 class ConvertedSourcePathTests(unittest.TestCase):
     def test_merged_vob_uses_folder_title(self):
         job = {

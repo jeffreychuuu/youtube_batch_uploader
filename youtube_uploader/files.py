@@ -44,14 +44,27 @@ def converted_source_path(job):
     return folder / f"{job['title']}.mp4"
 
 
-def build_upload_jobs(video_files, convert_extensions):
-    """Turn scanned files into upload jobs, merging multi-segment VOB files.
+def build_upload_jobs(
+    video_files,
+    convert_extensions,
+    combine_mode='vob',
+    combine_extensions=None,
+):
+    """Turn scanned files into upload jobs, optionally merging segments.
 
-    Non-VOB files are single-file jobs. VOB files named like VTS_01_1.VOB,
-    VTS_01_2.VOB, ... are merged per title set (same folder and prefix), in
-    numeric order, and titled after the folder. DVD menu files (*_0.VOB and
-    VIDEO_TS.VOB) are skipped.
+    `combine_mode` controls grouping:
+    - "vob" (default): merge multi-segment VOB title sets only.
+    - "folder": additionally merge every file of a listed extension in the
+      same folder, in natural order.
+    - "none": every file is its own job.
+
+    `combine_extensions` limits which extensions may be grouped. DVD menu
+    files (*_0.VOB and VIDEO_TS.VOB) are always skipped.
     """
+    if combine_extensions is None:
+        combine_extensions = ['.vob']
+    combine_extensions = {ext.lower() for ext in combine_extensions}
+
     jobs = []
     groups = {}
 
@@ -68,43 +81,78 @@ def build_upload_jobs(video_files, convert_extensions):
             })
             continue
 
-        if suffix != '.vob':
-            # Other formats can be transcoded individually when configured
-            jobs.append({
-                "files": [path],
-                "title": path.stem,
-                "display_name": path.name,
-                "convert": True,
-            })
+        if suffix == '.vob':
+            if path.name.upper() == 'VIDEO_TS.VOB':
+                print(f"[略過] DVD 選單檔案: {path.name}")
+                continue
+
+            match = VOB_SEGMENT_RE.match(path.stem)
+            if not match:
+                # Standalone VOB (e.g. a single-file rip)
+                jobs.append({
+                    "files": [path],
+                    "title": path.stem,
+                    "display_name": path.name,
+                    "convert": True,
+                })
+                continue
+
+            index = int(match.group('index'))
+            if index == 0:
+                print(f"[略過] DVD 選單檔案: {path.name}")
+                continue
+
+            combine = (
+                combine_mode in ('vob', 'folder')
+                and '.vob' in combine_extensions
+            )
+            if not combine:
+                jobs.append({
+                    "files": [path],
+                    "title": path.stem,
+                    "display_name": path.name,
+                    "convert": True,
+                })
+                continue
+
+            group_key = (
+                'vob', str(path.parent.resolve()), match.group('prefix').lower()
+            )
+            group = groups.get(group_key)
+            if group is None:
+                group = {
+                    "kind": "vob",
+                    "folder": path.parent,
+                    "prefix": match.group('prefix'),
+                    "segments": [],
+                }
+                groups[group_key] = group
+                jobs.append(group)
+            group["segments"].append((index, path))
             continue
 
-        if path.name.upper() == 'VIDEO_TS.VOB':
-            print(f"[略過] DVD 選單檔案: {path.name}")
+        if combine_mode == 'folder' and suffix in combine_extensions:
+            group_key = ('ext', str(path.parent.resolve()), suffix)
+            group = groups.get(group_key)
+            if group is None:
+                group = {
+                    "kind": "ext",
+                    "folder": path.parent,
+                    "suffix": suffix,
+                    "files": [],
+                }
+                groups[group_key] = group
+                jobs.append(group)
+            group["files"].append(path)
             continue
 
-        match = VOB_SEGMENT_RE.match(path.stem)
-        if not match:
-            # Standalone VOB (e.g. a single-file rip)
-            jobs.append({
-                "files": [path],
-                "title": path.stem,
-                "display_name": path.name,
-                "convert": True,
-            })
-            continue
-
-        index = int(match.group('index'))
-        if index == 0:
-            print(f"[略過] DVD 選單檔案: {path.name}")
-            continue
-
-        group_key = (str(path.parent.resolve()), match.group('prefix').lower())
-        group = groups.get(group_key)
-        if group is None:
-            group = {"folder": path.parent, "segments": []}
-            groups[group_key] = group
-            jobs.append(group)
-        group["segments"].append((index, path))
+        # Other formats can be transcoded individually when configured
+        jobs.append({
+            "files": [path],
+            "title": path.stem,
+            "display_name": path.name,
+            "convert": True,
+        })
 
     folder_counts = {}
     for group in groups.values():
@@ -112,31 +160,52 @@ def build_upload_jobs(video_files, convert_extensions):
         folder_counts[folder] = folder_counts.get(folder, 0) + 1
 
     for group in groups.values():
-        group["segments"].sort(key=lambda item: item[0])
-        files = [path for _, path in group["segments"]]
         folder = group["folder"]
-        merged = len(files) > 1
 
-        indexes = [index for index, _ in group["segments"]]
-        if indexes != list(range(1, len(indexes) + 1)):
-            print(
-                f"[警告] {folder.name} 的 VOB 分段不連續：{indexes}"
-                "（可能未複製完成，請確認後再上傳）"
+        if group["kind"] == "vob":
+            group["segments"].sort(key=lambda item: item[0])
+            files = [path for _, path in group["segments"]]
+            merged = len(files) > 1
+
+            indexes = [index for index, _ in group["segments"]]
+            if indexes != list(range(1, len(indexes) + 1)):
+                print(
+                    f"[警告] {folder.name} 的 VOB 分段不連續：{indexes}"
+                    "（可能未複製完成，請確認後再上傳）"
+                )
+
+            if merged:
+                title = folder_display_name(folder)
+                if folder_counts[folder] > 1:
+                    # Multiple groups in one folder: keep the titles distinct
+                    title = f"{title} ({group['prefix']})"
+            else:
+                title = files[0].stem
+
+            group["files"] = files
+            group["title"] = title
+            group["display_name"] = (
+                f"{title}（{len(files)} 段 VOB 合併）"
+                if merged else files[0].name
             )
+            group["convert"] = True
+            group.pop("segments", None)
+            group.pop("prefix", None)
+            group.pop("kind", None)
+            group.pop("folder", None)
+            continue
 
-        title = folder_display_name(folder) if merged else files[0].stem
-        if merged and folder_counts[folder] > 1:
-            # Multiple title sets in one folder: keep the titles distinct
-            prefix = VOB_SEGMENT_RE.match(files[0].stem).group('prefix')
-            title = f"{title} ({prefix})"
-
+        files = sorted(group["files"], key=natural_sort_key)
+        title = folder_display_name(folder)
+        if folder_counts[folder] > 1:
+            extension = group["suffix"].lstrip('.').upper()
+            title = f"{title} ({extension})"
         group["files"] = files
         group["title"] = title
-        group["display_name"] = (
-            f"{title}（{len(files)} 段 VOB 合併）" if merged else files[0].name
-        )
+        group["display_name"] = f"{title}（{len(files)} 個檔案合併）"
         group["convert"] = True
-        group.pop("segments", None)
+        group.pop("suffix", None)
+        group.pop("kind", None)
         group.pop("folder", None)
 
     return jobs

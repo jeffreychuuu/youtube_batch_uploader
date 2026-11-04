@@ -174,6 +174,8 @@ cp config.example.json config.json
   "made_for_kids": false,
   "video_extensions": [".mp4", ".mov", ".mkv", ".avi", ".m4v", ".vob"],
   "convert_extensions": [".vob"],
+  "combine_mode": "vob",
+  "combine_extensions": [".vob"],
   "part_duration_hours": 1,
   "chunk_size_mb": 32,
   "max_retries": 5,
@@ -195,6 +197,8 @@ cp config.example.json config.json
 | `made_for_kids` | `True` = 兒童導向內容；`False` = 非兒童導向 |
 | `video_extensions` | 要掃描的副檔名 |
 | `convert_extensions` | 上傳前先用 ffmpeg 轉成 MP4 的副檔名（預設 `[".vob"]`）；加入 `".avi"` 可強制 AVI 轉檔。呢個設定只管轉檔，唔再限制 cut——所有格式都接受 cuts |
+| `combine_mode` | `"vob"`（預設）只合併 VOB title set；`"folder"` 會額外將同一個 folder 內、`combine_extensions` 列出嘅格式全部按 natural order 合併；`"none"` 每條片獨立 job |
+| `combine_extensions` | `"folder"` 模式下有資格合併嘅副檔名（預設 `[".vob"]`）。每項都必須同時喺 `convert_extensions` 入面 |
 | `part_duration_hours` | 每段長度（小時），預設 `1`；`0` = 不分段。**所有 upload** 都適用，包括 MP4/MOV/AVI。未驗證帳戶可設 `0.25`（15 分鐘上限） |
 | `chunk_size_mb` | 每個上傳分塊的大小，必須為 256KB 的整數倍；大檔案建議 16–32 |
 | `max_retries` | 網絡錯誤 / 5xx 時每個分塊的最多重試次數 |
@@ -203,6 +207,8 @@ cp config.example.json config.json
 | `export_converted_source` | `true` = 將轉檔後嘅 MP4 保留喺來源旁邊（或 `VIDEO_TS` 上一層），並作為 source of record 重用 |
 | `remove_original_after_conversion` | `true` = 轉檔後 MP4 驗證成功就移除原始檔案（需要 `export_converted_source`） |
 | `remove_original_permanent` | 轉檔時清理嘅移除方式：`false` = 移至垃圾桶（預設）/ `true` = 永久刪除。同 `remove_local_permanent` 分開 |
+
+**檔案合併。** `combine_mode` 決定轉檔前要唔要合併檔案。`"vob"` 保留 DVD title-set 行為；`"folder"` 會將同一個 folder 內、`combine_extensions` 列出嘅格式全部按 natural order 合併（例如 `.m2ts` 分段）；`"none"` 每條片獨立上傳。合併後嘅一組會產生一個 golden MP4、一個 upload（再按 `part_duration_hours` 分段）；用 `"none"` 時每個來源檔各自有 title、golden MP4 同 upload。
 
 **轉檔來源與 golden source。** 開啟 `export_converted_source` 之後，轉檔後嘅檔案會成為 *golden source*：之後嘅 run 會由佢剪、分段、上傳，唔再重新讀取原始檔案。冇 cut 嘅上傳會用 stream copy 分段（快、唔重新 encode）；有 cut 嘅上傳先會 re-encode。`remove_original_after_conversion` 係唯一會喺轉檔階段移除原始檔案嘅設定——`remove_local_after_upload` 永遠唔會刪除 golden 檔案。Golden job 會沿用來源嘅 cuts namespace（合併 VOB 用 `folders`，單檔用 `files`），所以現有 `cuts.json` key 喺轉檔後照樣有效。如果兩個來源會寫出同一個 golden 檔案，程式會直接報錯，唔會覆蓋。
 

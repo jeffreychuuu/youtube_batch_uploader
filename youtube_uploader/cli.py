@@ -68,7 +68,12 @@ def main():
 
     video_files = scan_video_files(config["root_folder"], config["video_extensions"])
     convert_extensions = {ext.lower() for ext in config["convert_extensions"]}
-    jobs = build_upload_jobs(video_files, convert_extensions)
+    jobs = build_upload_jobs(
+        video_files,
+        convert_extensions,
+        config["combine_mode"],
+        config["combine_extensions"],
+    )
     if not jobs:
         print(f"[提示] 在 {config['root_folder']} 內找不到相容的影片檔案。")
         return

@@ -35,6 +35,33 @@ class GoldenConfigTests(unittest.TestCase):
                     'export_converted_source': 'yes',
                 }))
 
+    def test_combine_defaults(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = load_config(_config_file(tmp, {}))
+        self.assertEqual(config['combine_mode'], 'vob')
+        self.assertEqual(config['combine_extensions'], ['.vob'])
+
+    def test_rejects_invalid_combine_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(SystemExit):
+                load_config(_config_file(tmp, {'combine_mode': 'all'}))
+
+    def test_folder_mode_requires_combine_extensions_to_be_convertible(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(SystemExit):
+                load_config(_config_file(tmp, {
+                    'combine_mode': 'folder',
+                    'combine_extensions': ['.m2ts'],
+                    'convert_extensions': ['.vob'],
+                }))
+
+    def test_combine_extensions_must_start_with_dot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(SystemExit):
+                load_config(_config_file(tmp, {
+                    'combine_extensions': ['vob'],
+                }))
+
 
 if __name__ == '__main__':
     unittest.main()
