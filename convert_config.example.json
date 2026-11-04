@@ -1,11 +1,7 @@
 {
   "root_folder": "/path/to/your/videos",
   "convert_extensions": [".vob"],
-  "combine_mode": "vob",
-  "combine_extensions": [".vob"],
-  "combined_names": {
-    "Example Folder": "Custom Combined Name"
-  },
+  "combine": true,
   "export_converted_source": false,
   "remove_original_after_conversion": false,
   "remove_original_permanent": false

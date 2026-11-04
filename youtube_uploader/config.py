@@ -23,13 +23,9 @@ DEFAULT_CONVERT_CONFIG = {
     # here if you want every AVI transcoded for compatibility). The convert
     # script scans exactly these extensions.
     "convert_extensions": [".vob"],
-    # Combining behavior: "vob" (title sets only), "folder" (same folder +
-    # extension), or "none" (every file is its own job)
-    "combine_mode": "vob",
-    # Extensions eligible for combining in "folder" mode
-    "combine_extensions": [".vob"],
-    # Per-folder custom names for combined videos; default is "<folder> [combined]"
-    "combined_names": {},
+    # Merge files that belong together: VOB title sets, and same-folder files
+    # of the same convert extension. false = every file is its own job.
+    "combine": True,
     # Persist the converted MP4 next to the source and reuse it as the source of record
     "export_converted_source": False,
     # Remove the original files after a verified conversion
@@ -41,9 +37,8 @@ DEFAULT_CONVERT_CONFIG = {
 # Upload settings: an independent scan and publish configuration.
 DEFAULT_UPLOAD_CONFIG = {
     "root_folder": "/path/to/your/videos",
-    "video_extensions": [".mp4", ".mov", ".mkv", ".avi", ".m4v", ".vob"],
-    # Used only to skip sources that still need the convert script
-    "convert_extensions": [".vob"],
+    # Golden files are MP4; add other extensions only if they are uploadable as-is
+    "video_extensions": [".mp4"],
     "playlist_name": "My Playlist",
     "privacy_status": "unlisted",
     "made_for_kids": False,
@@ -89,42 +84,8 @@ def _validate_convert(config):
         for ext in config["convert_extensions"]
     ):
         sys.exit("[錯誤] convert_extensions 每項都必須係以 '.' 開頭的字串，例如 \".vob\"。")
-    if config["combine_mode"] not in ("vob", "folder", "none"):
-        sys.exit(
-            "[錯誤] combine_mode 只可以係 'vob'、'folder' 或 'none'。"
-        )
-    if not isinstance(config["combine_extensions"], list):
-        sys.exit(
-            "[錯誤] combine_extensions 必須係 JSON 陣列，例如 [\".vob\"]。"
-        )
-    if any(
-        not isinstance(ext, str) or not ext.startswith('.')
-        for ext in config["combine_extensions"]
-    ):
-        sys.exit(
-            "[錯誤] combine_extensions 每項都必須係以 '.' 開頭的字串，"
-            "例如 \".vob\"。"
-        )
-    if config["combine_mode"] == "folder":
-        convertible = {ext.lower() for ext in config["convert_extensions"]}
-        missing = sorted(
-            {ext.lower() for ext in config["combine_extensions"]} - convertible
-        )
-        if missing:
-            sys.exit(
-                "[錯誤] combine_mode=folder 時，combine_extensions 必須全部"
-                f"喺 convert_extensions 入面：{', '.join(missing)}"
-            )
-    if not isinstance(config["combined_names"], dict):
-        sys.exit(
-            "[錯誤] combined_names 必須係 JSON object，例如 "
-            "{\"Folder\": \"Custom Name\"}。"
-        )
-    if any(
-        not isinstance(key, str) or not isinstance(value, str)
-        for key, value in config["combined_names"].items()
-    ):
-        sys.exit("[錯誤] combined_names 嘅 key 同 value 都必須係字串。")
+    if not isinstance(config["combine"], bool):
+        sys.exit("[錯誤] combine 必須係 true 或 false。")
     for key in (
         "export_converted_source",
         "remove_original_after_conversion",
@@ -144,14 +105,12 @@ def _validate_convert(config):
 
 def _validate_upload(config):
     if not isinstance(config["video_extensions"], list):
-        sys.exit("[錯誤] video_extensions 必須係 JSON 陣列，例如 [\".mp4\", \".mov\"]。")
-    if not isinstance(config["convert_extensions"], list):
-        sys.exit("[錯誤] convert_extensions 必須係 JSON 陣列，例如 [\".vob\"]。")
+        sys.exit("[錯誤] video_extensions 必須係 JSON 陣列，例如 [\".mp4\"]。")
     if any(
         not isinstance(ext, str) or not ext.startswith('.')
-        for ext in config["convert_extensions"]
+        for ext in config["video_extensions"]
     ):
-        sys.exit("[錯誤] convert_extensions 每項都必須係以 '.' 開頭的字串，例如 \".vob\"。")
+        sys.exit("[錯誤] video_extensions 每項都必須係以 '.' 開頭的字串，例如 \".mp4\"。")
     if config["privacy_status"] not in ("public", "unlisted", "private"):
         sys.exit("[錯誤] privacy_status 只可以係 'public'、'unlisted' 或 'private'。")
     part_hours = config["part_duration_hours"]

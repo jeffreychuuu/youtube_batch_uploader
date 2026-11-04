@@ -21,9 +21,7 @@ class ConvertConfigTests(unittest.TestCase):
         self.assertFalse(config['export_converted_source'])
         self.assertFalse(config['remove_original_after_conversion'])
         self.assertFalse(config['remove_original_permanent'])
-        self.assertEqual(config['combine_mode'], 'vob')
-        self.assertEqual(config['combine_extensions'], ['.vob'])
-        self.assertEqual(config['combined_names'], {})
+        self.assertTrue(config['combine'])
 
     def test_remove_original_requires_export(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -40,35 +38,13 @@ class ConvertConfigTests(unittest.TestCase):
                     'export_converted_source': 'yes',
                 }))
 
-    def test_rejects_invalid_combine_mode(self):
+    def test_combine_must_be_boolean(self):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(SystemExit):
                 load_convert_config(_write(tmp, 'convert_config.json', {
-                    'combine_mode': 'all',
+                    'combine': 'yes',
                 }))
 
-    def test_folder_mode_requires_combine_extensions_to_be_convertible(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaises(SystemExit):
-                load_convert_config(_write(tmp, 'convert_config.json', {
-                    'combine_mode': 'folder',
-                    'combine_extensions': ['.m2ts'],
-                    'convert_extensions': ['.vob'],
-                }))
-
-    def test_combine_extensions_must_start_with_dot(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaises(SystemExit):
-                load_convert_config(_write(tmp, 'convert_config.json', {
-                    'combine_extensions': ['vob'],
-                }))
-
-    def test_combined_names_must_be_object_of_strings(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaises(SystemExit):
-                load_convert_config(_write(tmp, 'convert_config.json', {
-                    'combined_names': {'Folder': 123},
-                }))
 
 
 class UploadConfigTests(unittest.TestCase):
@@ -77,13 +53,13 @@ class UploadConfigTests(unittest.TestCase):
             upload = _write(tmp, 'upload_config.json', {
                 'root_folder': '/videos',
                 'video_extensions': ['.mp4'],
-                'convert_extensions': ['.vob'],
                 'playlist_name': 'P',
             })
             config = load_upload_config(upload)
         self.assertEqual(config['root_folder'], '/videos')
         self.assertEqual(config['playlist_name'], 'P')
         self.assertNotIn('export_converted_source', config)
+        self.assertNotIn('convert_extensions', config)
 
     def test_missing_config_uses_defaults(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -92,10 +68,10 @@ class UploadConfigTests(unittest.TestCase):
         self.assertEqual(config['privacy_status'], 'unlisted')
         self.assertEqual(config['video_extensions'][0], '.mp4')
 
-    def test_convert_extensions_must_start_with_dot(self):
+    def test_video_extensions_must_start_with_dot(self):
         with tempfile.TemporaryDirectory() as tmp:
             upload = _write(tmp, 'upload_config.json', {
-                'convert_extensions': ['vob'],
+                'video_extensions': ['mp4'],
             })
             with self.assertRaises(SystemExit):
                 load_upload_config(upload)

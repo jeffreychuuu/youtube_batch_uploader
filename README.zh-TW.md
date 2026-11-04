@@ -173,11 +173,7 @@ cp upload_config.example.json upload_config.json
 {
   "root_folder": "/path/to/your/videos",
   "convert_extensions": [".vob"],
-  "combine_mode": "vob",
-  "combine_extensions": [".vob"],
-  "combined_names": {
-    "My Video": "1995-1996 家庭影片"
-  },
+  "combine": true,
   "export_converted_source": false,
   "remove_original_after_conversion": false,
   "remove_original_permanent": false
@@ -188,9 +184,7 @@ cp upload_config.example.json upload_config.json
 |---|---|
 | `root_folder` | 影片來源資料夾，會遞迴掃描所有子資料夾 |
 | `convert_extensions` | 先用 ffmpeg 轉成 MP4 的副檔名（預設 `[".vob"]`）；加入 `".avi"` 可強制 AVI 轉檔。Convert script 只會掃描呢啲副檔名 |
-| `combine_mode` | `"vob"`（預設）只合併 VOB title set；`"folder"` 會額外將同一個 folder 內、`combine_extensions` 列出嘅格式全部按 natural order 合併；`"none"` 每條片獨立 job |
-| `combine_extensions` | `"folder"` 模式下有資格合併嘅副檔名（預設 `[".vob"]`）。每項都必須同時喺 `convert_extensions` 入面 |
-| `combined_names` | 個別 folder 嘅合併片自訂名稱。Key 係未加 suffix 嘅 group title（例如 `My Video`，或同一 folder 有多組時嘅 `Family (VTS_01)` / `Family (M2TS)`）。冇列出嘅 group 用 `<folder> [combined]` |
+| `combine` | `true`（預設）會合併 VOB title set，同一個 folder 內同一個 convert extension 嘅檔案亦會按 natural order 合併；`false` 每條片獨立 job |
 | `export_converted_source` | `true` = 將轉檔後嘅 MP4 保留喺來源旁邊（或 `VIDEO_TS` 上一層），並作為 source of record 重用 |
 | `remove_original_after_conversion` | `true` = 轉檔後 MP4 驗證成功就移除原始檔案（需要 `export_converted_source`） |
 | `remove_original_permanent` | 轉檔時清理嘅移除方式：`false` = 移至垃圾桶（預設）/ `true` = 永久刪除 |
@@ -200,8 +194,7 @@ cp upload_config.example.json upload_config.json
 ```json
 {
   "root_folder": "/path/to/your/videos",
-  "video_extensions": [".mp4", ".mov", ".mkv", ".avi", ".m4v", ".vob"],
-  "convert_extensions": [".vob"],
+  "video_extensions": [".mp4"],
   "playlist_name": "My Playlist",
   "privacy_status": "unlisted",
   "made_for_kids": false,
@@ -216,8 +209,7 @@ cp upload_config.example.json upload_config.json
 | 設定 | 說明 |
 |---|---|
 | `root_folder` | 上傳用嘅來源資料夾；同 convert config 完全獨立 |
-| `video_extensions` | 上傳要掃描嘅副檔名 |
-| `convert_extensions` | 仲未轉檔嘅格式；upload script 會跳過並提示先執行 `convert_only.py` |
+| `video_extensions` | 上傳要掃描嘅副檔名（預設 `[".mp4"]`，即 golden 輸出）。只有可以直接上傳嘅格式先好加其他 extension |
 | `playlist_name` | 目標播放清單名稱；不存在會自動建立。設為 `""` 就不加入任何清單 |
 | `privacy_status` | `public`（公開）/ `unlisted`（不公開，有連結即可觀看）/ `private`（私人） |
 | `made_for_kids` | `True` = 兒童導向內容；`False` = 非兒童導向 |
@@ -229,7 +221,7 @@ cp upload_config.example.json upload_config.json
 
 兩個檔案都已加入 `.gitignore`，**不會被 commit**；即使你 fork 了這個 repo，也可以安全地放置自己的路徑。兩個 config **完全獨立**：`upload_config.json` 永遠唔會讀 `convert_config.json`。冇檔案時會用內建預設值。
 
-**檔案合併。** `combine_mode` 決定轉檔前要唔要合併檔案。`"vob"` 保留 DVD title-set 行為；`"folder"` 會將同一個 folder 內、`combine_extensions` 列出嘅格式全部按 natural order 合併（例如 `.m2ts` 分段）；`"none"` 每條片獨立。合併後嘅一組默認叫 `<folder> [combined]`，可以用 `combined_names` 覆蓋，並會產生一個 golden MP4、一個 upload（再按 `part_duration_hours` 分段）；用 `"none"` 時每個來源檔各自有 title、golden MP4 同 upload。
+**檔案合併。** `combine` 決定轉檔前要唔要合併檔案。`true`（預設）會合併 VOB title set，同一個 folder 內同一個 convert extension 嘅檔案亦會按 natural order 合併（例如 `.m2ts` 分段）；`false` 每條片獨立。合併後嘅一組默認叫 `<folder> [combined]`，並會產生一個 golden MP4、一個 upload（再按 `part_duration_hours` 分段）；用 `false` 時每個來源檔保留自己嘅 filename 做 title，各自有 golden MP4 同 upload。
 
 **轉檔來源與 golden source。** 開啟 `export_converted_source` 之後，轉檔後嘅檔案會成為 *golden source*：之後嘅 run 會由佢剪、分段、上傳，唔再重新讀取原始檔案。冇 cut 嘅上傳會用 stream copy 分段（快、唔重新 encode）；有 cut 嘅上傳先會 re-encode。`remove_original_after_conversion` 係唯一會喺轉檔階段移除原始檔案嘅設定——`remove_local_after_upload` 永遠唔會刪除 golden 檔案。Golden job 會沿用來源嘅 cuts namespace（合併 VOB 用 `folders`，單檔用 `files`），所以現有 `cuts.json` key 喺轉檔後照樣有效。如果兩個來源會寫出同一個 golden 檔案，程式會直接報錯，唔會覆蓋。
 
@@ -244,12 +236,11 @@ python3 batch_upload.py
 
 執行後會：
 
-1. 掃描 `root_folder`，列出上傳項目數量
-2. 跳過仲需要轉檔（`convert_extensions`）嘅來源，並提示先執行 `convert_only.py`
-3. 開啟瀏覽器進行 OAuth 授權（第一次才需要）
-4. 找到或建立播放清單
-5. 將 golden／直接可上傳嘅檔案剪輯、分段，逐個 part 上傳
-6. 上傳完成後加入播放清單
+1. 按 `video_extensions`（預設 `[".mp4"]`，即 golden 輸出）掃描 `root_folder`，列出上傳項目數量
+2. 開啟瀏覽器進行 OAuth 授權（第一次才需要）
+3. 找到或建立播放清單
+4. 將檔案剪輯、分段，逐個 part 上傳
+5. 上傳完成後加入播放清單
 
 想先轉檔，行 `python3 convert_only.py`（見 3.3）。想一句 command 做晒：
 

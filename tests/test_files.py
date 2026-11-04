@@ -54,8 +54,8 @@ class BuildUploadJobsTests(unittest.TestCase):
             self.assertEqual(build_upload_jobs([menu], {'.vob'}), [])
 
 
-class CombineModeTests(unittest.TestCase):
-    def test_none_mode_keeps_vob_segments_separate(self):
+class CombineTests(unittest.TestCase):
+    def test_combine_false_keeps_vob_segments_separate(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp) / 'Folder'
             folder.mkdir()
@@ -63,14 +63,14 @@ class CombineModeTests(unittest.TestCase):
             for path in files:
                 path.touch()
 
-            jobs = build_upload_jobs(files, {'.vob'}, combine_mode='none')
+            jobs = build_upload_jobs(files, {'.vob'}, combine=False)
 
             self.assertEqual(
                 [job['title'] for job in jobs], ['VTS_01_1', 'VTS_01_2']
             )
             self.assertTrue(all(job['convert'] for job in jobs))
 
-    def test_folder_mode_groups_same_extension(self):
+    def test_combine_true_groups_same_extension(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp) / 'Folder'
             folder.mkdir()
@@ -78,10 +78,7 @@ class CombineModeTests(unittest.TestCase):
             for path in files:
                 path.touch()
 
-            jobs = build_upload_jobs(
-                files, {'.m2ts'},
-                combine_mode='folder', combine_extensions=['.m2ts'],
-            )
+            jobs = build_upload_jobs(files, {'.m2ts'}, combine=True)
 
             self.assertEqual(len(jobs), 1)
             self.assertEqual(jobs[0]['title'], 'Folder [combined]')
@@ -89,7 +86,7 @@ class CombineModeTests(unittest.TestCase):
                 jobs[0]['files'], [folder / 'a.m2ts', folder / 'b.m2ts']
             )
 
-    def test_folder_mode_keeps_vob_title_sets(self):
+    def test_combine_true_keeps_vob_title_sets(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp) / 'Folder'
             folder.mkdir()
@@ -97,30 +94,12 @@ class CombineModeTests(unittest.TestCase):
             for path in files:
                 path.touch()
 
-            jobs = build_upload_jobs(
-                files, {'.vob'},
-                combine_mode='folder', combine_extensions=['.vob'],
-            )
+            jobs = build_upload_jobs(files, {'.vob'}, combine=True)
 
             self.assertEqual(len(jobs), 1)
             self.assertEqual(jobs[0]['title'], 'Folder [combined]')
 
-    def test_vob_mode_ignores_other_extensions(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            folder = Path(tmp) / 'Folder'
-            folder.mkdir()
-            files = [folder / 'a.m2ts', folder / 'b.m2ts']
-            for path in files:
-                path.touch()
-
-            jobs = build_upload_jobs(
-                files, {'.m2ts'},
-                combine_mode='vob', combine_extensions=['.m2ts'],
-            )
-
-            self.assertEqual(len(jobs), 2)
-
-    def test_folder_mode_disambiguates_extension_groups(self):
+    def test_combine_true_disambiguates_extension_groups(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp) / 'Folder'
             folder.mkdir()
@@ -132,9 +111,7 @@ class CombineModeTests(unittest.TestCase):
                 path.touch()
 
             jobs = build_upload_jobs(
-                files, {'.m2ts', '.avi'},
-                combine_mode='folder',
-                combine_extensions=['.m2ts', '.avi'],
+                files, {'.m2ts', '.avi'}, combine=True,
             )
 
             self.assertEqual(
@@ -142,56 +119,17 @@ class CombineModeTests(unittest.TestCase):
                 ['Folder (AVI) [combined]', 'Folder (M2TS) [combined]'],
             )
 
-    def test_folder_mode_ignores_unlisted_extensions(self):
+    def test_combine_true_single_file_uses_stem(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp) / 'Folder'
             folder.mkdir()
-            files = [folder / 'a.m2ts', folder / 'b.m2ts']
-            for path in files:
-                path.touch()
+            path = folder / 'clip.m2ts'
+            path.touch()
 
-            jobs = build_upload_jobs(
-                files, {'.m2ts'},
-                combine_mode='folder', combine_extensions=['.vob'],
-            )
+            jobs = build_upload_jobs([path], {'.m2ts'}, combine=True)
 
-            self.assertEqual(len(jobs), 2)
+            self.assertEqual(jobs[0]['title'], 'clip')
 
-
-    def test_custom_combined_name_overrides_default(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            folder = Path(tmp) / 'Folder'
-            folder.mkdir()
-            files = [folder / 'VTS_01_1.VOB', folder / 'VTS_01_2.VOB']
-            for path in files:
-                path.touch()
-
-            jobs = build_upload_jobs(
-                files, {'.vob'}, combined_names={'Folder': 'My Custom'},
-            )
-
-            self.assertEqual(jobs[0]['title'], 'My Custom')
-
-    def test_custom_name_uses_group_suffix_key(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            folder = Path(tmp) / 'Folder'
-            folder.mkdir()
-            files = [
-                folder / 'a.m2ts', folder / 'b.m2ts',
-                folder / 'c.avi', folder / 'd.avi',
-            ]
-            for path in files:
-                path.touch()
-
-            jobs = build_upload_jobs(
-                files, {'.m2ts', '.avi'},
-                combine_mode='folder',
-                combine_extensions=['.m2ts', '.avi'],
-                combined_names={'Folder (M2TS)': 'Custom M2TS'},
-            )
-
-            titles = sorted(job['title'] for job in jobs)
-            self.assertEqual(titles, ['Custom M2TS', 'Folder (AVI) [combined]'])
 
 
 class ConvertedSourcePathTests(unittest.TestCase):

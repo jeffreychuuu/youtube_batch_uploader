@@ -1,7 +1,6 @@
 {
   "root_folder": "/path/to/your/videos",
-  "video_extensions": [".mp4", ".mov", ".mkv", ".avi", ".m4v", ".vob"],
-  "convert_extensions": [".vob"],
+  "video_extensions": [".mp4"],
   "playlist_name": "My Playlist",
   "privacy_status": "unlisted",
   "made_for_kids": false,

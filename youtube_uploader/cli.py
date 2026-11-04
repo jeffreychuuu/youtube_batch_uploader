@@ -1,5 +1,4 @@
-"""Command-line flow: scan, convert, upload and clean up."""
-import shutil
+"""Command-line flow: scan, upload and clean up."""
 import sys
 
 from googleapiclient.errors import HttpError
@@ -19,13 +18,12 @@ from .cuts import (
 )
 from .ffmpeg import remove_cached_conversion
 from .files import build_upload_jobs, remove_local_file, scan_video_files
-from .golden import mark_golden_jobs, skip_converted_source_jobs
+from .golden import mark_golden_jobs
 from .pipeline import (
     cleanup_plan_cache,
     media_parts_for_plan,
     prepare_source,
     should_remove_sources,
-    skip_unconverted_jobs,
 )
 from .state import get_entry, is_same_source, load_state, refresh_entry, save_state
 from .youtube_api import (
@@ -66,12 +64,7 @@ def main(config=None):
         sys.exit("[錯誤] chunk_size_mb 換算後必須是 256KB 的整數倍。")
 
     video_files = scan_video_files(config["root_folder"], config["video_extensions"])
-    convert_extensions = {ext.lower() for ext in config["convert_extensions"]}
-    jobs = build_upload_jobs(
-        video_files,
-        convert_extensions,
-        combine_mode='none',
-    )
+    jobs = build_upload_jobs(video_files, set(), combine=False)
     if not jobs:
         print(f"[提示] 在 {config['root_folder']} 內找不到相容的影片檔案。")
         return
@@ -80,27 +73,9 @@ def main(config=None):
         f"[掃描完成] 共找到 {len(video_files)} 個影片檔案，"
         f"合併為 {len(jobs)} 個上傳項目。"
     )
-    if any(job["convert"] for job in jobs) and not shutil.which('ffmpeg'):
-        print(
-            "[警告] 找不到 ffmpeg，需要轉檔的影片（例如 VOB）會被跳過。\n"
-            "        請先安裝：brew install ffmpeg（macOS）"
-        )
     state = load_state()
     cuts_map = load_cuts()
     mark_golden_jobs(jobs, state)
-    skipped = skip_converted_source_jobs(jobs, state)
-    if skipped:
-        print(f"[略過] 已匯出 golden source：{', '.join(skipped)}")
-    jobs = [job for job in jobs if not job.get("skip_reason")]
-    if skipped and not any(job.get("golden") for job in jobs):
-        sys.exit(
-            "[錯誤] 有 golden source 記錄，但喺掃描範圍搵唔到對應 MP4；"
-            "請確認 root_folder 包含 golden 檔案。"
-        )
-    jobs = skip_unconverted_jobs(jobs)
-    if not jobs:
-        print("[提示] 沒有可上傳的影片（請先執行 convert_only.py 轉檔）。")
-        return
     _ensure_unique_job_keys(jobs, cuts_map)
     part_hours = config["part_duration_hours"]
     used_cut_keys = set()

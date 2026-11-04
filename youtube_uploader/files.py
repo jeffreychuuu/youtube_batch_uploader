@@ -44,36 +44,18 @@ def converted_source_path(job):
     return folder / f"{job['title']}.mp4"
 
 
-def _combined_title(base, combined_names):
-    """Custom combined name if configured, else '<base> [combined]'"""
-    if combined_names and base in combined_names:
-        return combined_names[base]
+def _combined_title(base):
+    """Default name for a combined group"""
     return f"{base} [combined]"
 
 
-def build_upload_jobs(
-    video_files,
-    convert_extensions,
-    combine_mode='vob',
-    combine_extensions=None,
-    combined_names=None,
-):
+def build_upload_jobs(video_files, convert_extensions, combine=True):
     """Turn scanned files into upload jobs, optionally merging segments.
 
-    `combine_mode` controls grouping:
-    - "vob" (default): merge multi-segment VOB title sets only.
-    - "folder": additionally merge every file of a listed extension in the
-      same folder, in natural order.
-    - "none": every file is its own job.
-
-    `combine_extensions` limits which extensions may be grouped.
-    `combined_names` maps a group title (before the "[combined]" suffix) to a
-    custom name. DVD menu files (*_0.VOB and VIDEO_TS.VOB) are always skipped.
+    `combine` merges VOB title sets and same-folder files of the same convert
+    extension. When false, every file is its own job.
+    DVD menu files (*_0.VOB and VIDEO_TS.VOB) are always skipped.
     """
-    if combine_extensions is None:
-        combine_extensions = ['.vob']
-    combine_extensions = {ext.lower() for ext in combine_extensions}
-
     jobs = []
     groups = {}
 
@@ -111,10 +93,6 @@ def build_upload_jobs(
                 print(f"[略過] DVD 選單檔案: {path.name}")
                 continue
 
-            combine = (
-                combine_mode in ('vob', 'folder')
-                and '.vob' in combine_extensions
-            )
             if not combine:
                 jobs.append({
                     "files": [path],
@@ -140,7 +118,7 @@ def build_upload_jobs(
             group["segments"].append((index, path))
             continue
 
-        if combine_mode == 'folder' and suffix in combine_extensions:
+        if combine:
             group_key = ('ext', str(path.parent.resolve()), suffix)
             group = groups.get(group_key)
             if group is None:
@@ -188,7 +166,7 @@ def build_upload_jobs(
                 if folder_counts[folder] > 1:
                     # Multiple groups in one folder: keep the titles distinct
                     title = f"{title} ({group['prefix']})"
-                title = _combined_title(title, combined_names)
+                title = _combined_title(title)
             else:
                 title = files[0].stem
 
@@ -211,7 +189,7 @@ def build_upload_jobs(
             if folder_counts[folder] > 1:
                 extension = group["suffix"].lstrip('.').upper()
                 title = f"{title} ({extension})"
-            title = _combined_title(title, combined_names)
+            title = _combined_title(title)
             display_name = f"{title}（{len(files)} 個檔案合併）"
         else:
             title = files[0].stem

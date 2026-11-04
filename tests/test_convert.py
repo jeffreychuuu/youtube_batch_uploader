@@ -8,8 +8,7 @@ from youtube_uploader.convert import run_convert_only
 BASE_CONFIG = {
     'root_folder': None,
     'convert_extensions': ['.vob'],
-    'combine_mode': 'vob',
-    'combine_extensions': ['.vob'],
+    'combine': True,
     'export_converted_source': True,
     'remove_original_after_conversion': False,
     'remove_original_permanent': False,

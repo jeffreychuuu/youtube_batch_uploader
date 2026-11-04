@@ -8,7 +8,7 @@ from unittest.mock import patch
 from youtube_uploader.ffmpeg import remove_cached_conversion, verify_video
 from youtube_uploader.pipeline import (
     SourcePlan, cleanup_plan_cache, media_parts_for_plan, prepare_source,
-    should_remove_sources, skip_unconverted_jobs,
+    should_remove_sources,
 )
 
 
@@ -299,23 +299,6 @@ class CleanupAndRemovalTests(unittest.TestCase):
         self.assertTrue(
             should_remove_sources(plan, {'remove_local_after_upload': True})
         )
-
-
-class UploadJobFilterTests(unittest.TestCase):
-    def test_drops_convert_jobs_without_golden(self):
-        jobs = [
-            {'display_name': 'VOB', 'convert': True},
-            {'display_name': 'Golden', 'convert': False, 'golden': True},
-            {'display_name': 'MP4', 'convert': False},
-        ]
-        kept = skip_unconverted_jobs(jobs)
-        self.assertEqual(
-            [job['display_name'] for job in kept], ['Golden', 'MP4']
-        )
-
-    def test_keeps_golden_job_even_if_extension_is_convert(self):
-        jobs = [{'display_name': 'Golden', 'convert': True, 'golden': True}]
-        self.assertEqual(len(skip_unconverted_jobs(jobs)), 1)
 
 
 class GoldenSmokeTests(unittest.TestCase):

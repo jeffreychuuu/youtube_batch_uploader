@@ -113,22 +113,3 @@ def cleanup_plan_cache(plan, part_hours, cuts):
 def should_remove_sources(plan, config):
     """Whether post-upload source cleanup applies (golden files are never removed)"""
     return not plan.golden and config["remove_local_after_upload"]
-
-
-def skip_unconverted_jobs(jobs):
-    """Upload-only: drop jobs that still need the convert script"""
-    kept = []
-    skipped = []
-    for job in jobs:
-        if job.get("convert") and not job.get("golden"):
-            skipped.append(job['display_name'])
-            continue
-        kept.append(job)
-    if skipped:
-        shown = ', '.join(skipped[:3])
-        extra = f" 等 {len(skipped)} 個" if len(skipped) > 3 else ''
-        print(
-            f"[略過] 需要先轉檔：{shown}{extra}"
-            "（請先執行 convert_only.py）"
-        )
-    return kept

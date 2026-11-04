@@ -173,11 +173,7 @@ cp upload_config.example.json upload_config.json
 {
   "root_folder": "/path/to/your/videos",
   "convert_extensions": [".vob"],
-  "combine_mode": "vob",
-  "combine_extensions": [".vob"],
-  "combined_names": {
-    "My Video": "1995-1996 Family"
-  },
+  "combine": true,
   "export_converted_source": false,
   "remove_original_after_conversion": false,
   "remove_original_permanent": false
@@ -188,9 +184,7 @@ cp upload_config.example.json upload_config.json
 |---|---|
 | `root_folder` | Source folder for videos; all subfolders are scanned recursively |
 | `convert_extensions` | Extensions transcoded to MP4 with ffmpeg (default `[".vob"]`); add `".avi"` to force AVI transcoding. The convert script scans exactly these extensions |
-| `combine_mode` | `"vob"` (default) merges VOB title sets only; `"folder"` also merges every file of a `combine_extensions` extension in the same folder, in natural order; `"none"` makes every file its own job |
-| `combine_extensions` | Extensions eligible for combining in `"folder"` mode (default `[".vob"]`). Every entry must also be in `convert_extensions` |
-| `combined_names` | Per-folder custom name for a combined video. The key is the group title before the suffix (for example `My Video`, or `Family (VTS_01)` / `Family (M2TS)` when a folder has multiple groups). Unlisted groups use `<folder> [combined]` |
+| `combine` | `true` (default) merges VOB title sets and same-folder files of the same convert extension, in natural order; `false` makes every file its own job |
 | `export_converted_source` | `true` = keep the converted MP4 next to the source (or its `VIDEO_TS` parent) and reuse it as the source of record |
 | `remove_original_after_conversion` | `true` = remove the original files after the converted MP4 is verified (requires `export_converted_source`) |
 | `remove_original_permanent` | Removal method for conversion-time cleanup: `false` = move to Trash (default) / `true` = delete permanently |
@@ -200,8 +194,7 @@ cp upload_config.example.json upload_config.json
 ```json
 {
   "root_folder": "/path/to/your/videos",
-  "video_extensions": [".mp4", ".mov", ".mkv", ".avi", ".m4v", ".vob"],
-  "convert_extensions": [".vob"],
+  "video_extensions": [".mp4"],
   "playlist_name": "My Playlist",
   "privacy_status": "unlisted",
   "made_for_kids": false,
@@ -216,8 +209,7 @@ cp upload_config.example.json upload_config.json
 | Setting | Description |
 |---|---|
 | `root_folder` | Source folder for uploads; scanned independently from the convert config |
-| `video_extensions` | Extensions to scan for uploads |
-| `convert_extensions` | Formats that must be converted first; the upload script skips them with a message to run `convert_only.py` |
+| `video_extensions` | Extensions to scan for uploads (default `[".mp4"]`, the golden output). Add others only if they are uploadable as-is |
 | `playlist_name` | Target playlist name; created automatically if it does not exist. Set to `""` to skip adding to a playlist |
 | `privacy_status` | `public` / `unlisted` (visible via link) / `private` |
 | `made_for_kids` | `True` = content made for kids; `False` = not made for kids |
@@ -229,7 +221,7 @@ cp upload_config.example.json upload_config.json
 
 Both files are listed in `.gitignore` and **will not be committed**; you can safely use your own paths even after forking this repo. They are **fully independent**: `upload_config.json` never reads `convert_config.json`. Missing files fall back to the built-in defaults.
 
-**Combining files.** `combine_mode` decides which files are merged before conversion. `"vob"` keeps the DVD title-set behavior. `"folder"` merges every file of a `combine_extensions` extension in the same folder (for example `.m2ts` segments), in natural order. `"none"` makes every file its own upload. A combined group is named `<folder> [combined]` unless `combined_names` overrides it, and produces one golden MP4 and one upload (split by `part_duration_hours`); with `"none"`, each source file gets its own title, golden MP4 and upload.
+**Combining files.** `combine` decides whether files are merged before conversion. `true` (default) merges VOB title sets and same-folder files of the same convert extension (for example `.m2ts` segments), in natural order. `false` makes every file its own upload. A combined group is named `<folder> [combined]` and produces one golden MP4 and one upload (split by `part_duration_hours`); with `false`, each source file keeps its own filename as the title and gets its own golden MP4 and upload.
 
 **Converted sources and golden files.** When `export_converted_source` is enabled, a converted file becomes a *golden source*: later runs cut, split and upload from it instead of re-reading the originals. Cut-free uploads are split with stream copy (fast, no re-encode); uploads with cuts are re-encoded. `remove_original_after_conversion` is the only setting that removes the original files at conversion time — `remove_local_after_upload` never removes a golden file. A golden job keeps the cuts namespace of its source (`folders` for merged VOB jobs, `files` for single-file jobs), so existing `cuts.json` keys keep working after conversion. Two sources that would write the same golden file stop the run instead of overwriting.
 
@@ -244,12 +236,11 @@ python3 batch_upload.py
 
 This run will:
 
-1. Scan `root_folder` and report how many upload items were found
-2. Skip sources that still need conversion (`convert_extensions`) with a message to run `convert_only.py`
-3. Open the browser for OAuth authorization (first run only)
-4. Find or create the playlist
-5. Cut and split the golden/direct files with ffmpeg, then upload each part one by one
-6. Add each uploaded video to the playlist
+1. Scan `root_folder` for the extensions in `video_extensions` (default `[".mp4"]`, the golden output) and report how many upload items were found
+2. Open the browser for OAuth authorization (first run only)
+3. Find or create the playlist
+4. Cut and split the files with ffmpeg, then upload each part one by one
+5. Add each uploaded video to the playlist
 
 To convert first, run `python3 convert_only.py` (section 3.3). To do both with one command:
 
